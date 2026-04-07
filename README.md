@@ -63,6 +63,7 @@ It also provides a modern browser-based UI:
   - Per-directory read-only control
   - Per-directory expiration rules
 - Supports reverse proxies and subpath hosting
+- Docker image available
 - Health check endpoint at `/health`
 
 ## Requirements
@@ -429,17 +430,17 @@ Relative `storageDir` paths are resolved from the directory containing `config.j
 
 All settings are resolved with the priority **CLI > environment variable > config.json > default**.
 
-| CLI option                     | Environment variable           | `config.json` key | Description                                       | Valid values                                 | Default             |
-| :----------------------------- | :----------------------------- | :---------------- | :------------------------------------------------ | :------------------------------------------- | :------------------ |
-| `-p, --port <port>`           | `UPLODAH_PORT`                 | `port`            | HTTP server listening port                        | 1-65535                                      | `5968`              |
-| `-b, --base-url <url>`        | `UPLODAH_BASE_URL`             | `baseUrl`         | Fixed external base URL                           | valid URL                                    | auto-detected       |
-| `-d, --storage-dir <dir>`     | `UPLODAH_STORAGE_DIR`          | `storageDir`      | Storage root directory                            | valid path                                   | `./storage`         |
-| `-c, --config-file <path>`    | `UPLODAH_CONFIG_FILE`          | N/A               | Path to the configuration file                    | valid path                                   | `./config.json`     |
-| `-r, --realm <realm>`         | `UPLODAH_REALM`                | `realm`           | UI title and server label                         | string                                       | `uplodah [version]` |
-| `-l, --log-level <level>`     | `UPLODAH_LOG_LEVEL`            | `logLevel`        | Log verbosity                                     | `debug`, `info`, `warn`, `error`, `ignore`   | `info`              |
-| `--trusted-proxies <ips>`     | `UPLODAH_TRUSTED_PROXIES`      | `trustedProxies`  | Comma-separated trusted proxy IP list             | list of IP addresses                         | none                |
-| `--max-upload-size-mb <size>` | `UPLODAH_MAX_UPLOAD_SIZE_MB`   | `maxUploadSizeMb` | Maximum upload size in MB                         | 1-10000                                      | `100`               |
-| N/A                           | N/A                            | `storage`         | Per-virtual-directory storage policy              | object                                       | unset               |
+| CLI option                    | Environment variable         | `config.json` key | Description                           | Valid values                               | Default             |
+| :---------------------------- | :--------------------------- | :---------------- | :------------------------------------ | :----------------------------------------- | :------------------ |
+| `-p, --port <port>`           | `UPLODAH_PORT`               | `port`            | HTTP server listening port            | 1-65535                                    | `5968`              |
+| `-b, --base-url <url>`        | `UPLODAH_BASE_URL`           | `baseUrl`         | Fixed external base URL               | valid URL                                  | auto-detected       |
+| `-d, --storage-dir <dir>`     | `UPLODAH_STORAGE_DIR`        | `storageDir`      | Storage root directory                | valid path                                 | `./storage`         |
+| `-c, --config-file <path>`    | `UPLODAH_CONFIG_FILE`        | N/A               | Path to the configuration file        | valid path                                 | `./config.json`     |
+| `-r, --realm <realm>`         | `UPLODAH_REALM`              | `realm`           | UI title and server label             | string                                     | `uplodah [version]` |
+| `-l, --log-level <level>`     | `UPLODAH_LOG_LEVEL`          | `logLevel`        | Log verbosity                         | `debug`, `info`, `warn`, `error`, `ignore` | `info`              |
+| `--trusted-proxies <ips>`     | `UPLODAH_TRUSTED_PROXIES`    | `trustedProxies`  | Comma-separated trusted proxy IP list | list of IP addresses                       | none                |
+| `--max-upload-size-mb <size>` | `UPLODAH_MAX_UPLOAD_SIZE_MB` | `maxUploadSizeMb` | Maximum upload size in MB             | 1-10000                                    | `100`               |
+| N/A                           | N/A                          | `storage`         | Per-virtual-directory storage policy  | object                                     | unset               |
 
 ---
 
@@ -492,6 +493,238 @@ export UPLODAH_MAX_UPLOAD_SIZE_MB=500
 
 ---
 
+## Docker usage
+
+Docker images are available for multiple architectures:
+
+- `linux/amd64` (x86_64)
+- `linux/arm64` (aarch64)
+
+When pulling the image, Docker automatically selects the appropriate architecture for your platform.
+
+### Quick start
+
+Suppose you have configured the following directory structure for persistence (recommended):
+
+```
+docker-instance/
+├── data/
+│   └── config.json
+└── storage/
+    └── (uploaded files)
+```
+
+Execute as follows:
+
+```bash
+# Pull and run the latest version
+docker run -d -p 5968:5968 \
+  -v $(pwd)/data:/data \
+  -v $(pwd)/storage:/storage \
+  kekyo/uplodah:latest
+
+# Or with Docker Compose
+cat > docker-compose.yml << EOF
+version: '3'
+services:
+  uplodah:
+    image: kekyo/uplodah:latest
+    ports:
+      - "5968:5968"
+    volumes:
+      - ./data:/data
+      - ./storage:/storage
+    environment:
+      - UPLODAH_BASE_URL=http://localhost:5968
+EOF
+
+docker-compose up -d
+```
+
+`uplodah` is now available at:
+
+- Web UI: `http://localhost:5968/`
+- File listing API: `http://localhost:5968/api/files`
+- Upload API: `http://localhost:5968/api/upload/<file-name>`
+- Download API: `http://localhost:5968/api/files/<file-name>`
+- Health check: `http://localhost:5968/health`
+
+### Permission requirements
+
+The Docker container runs as the `uplodah` user (UID 1001) for security reasons.
+You need to ensure that the mounted directories have the appropriate permissions for this user to read and write files.
+
+**Set proper permissions for mounted directories:**
+
+```bash
+# Create directories if they don't exist
+mkdir -p ./data ./storage
+
+# Set ownership to UID 1001 (matches the container's uplodah user)
+sudo chown -R 1001:1001 ./data ./storage
+```
+
+**Important**: Without proper permissions, you may encounter `Permission denied` errors when:
+
+- Creating directories for uploads
+- Writing uploaded files into `/storage`
+- Deleting expired files from `/storage`
+- Reading `/data/config.json`
+
+### Basic usage
+
+```bash
+# Run with default settings (port 5968, storage and config taken from mounted volumes)
+docker run -p 5968:5968 \
+  -v $(pwd)/data:/data \
+  -v $(pwd)/storage:/storage \
+  kekyo/uplodah:latest
+
+# With a fixed public base URL
+docker run -p 5968:5968 \
+  -v $(pwd)/data:/data \
+  -v $(pwd)/storage:/storage \
+  -e UPLODAH_BASE_URL=https://files.example.com/uplodah \
+  kekyo/uplodah:latest
+```
+
+You can also change settings using environment variables or command-line options, but the easiest way to configure settings is to use `config.json`.
+
+Since the Docker image has mount points configured, you can mount `/data` and `/storage` as shown in the example above and place `/data/config.json` there to flexibly configure settings.
+Below is an example of `config.json`:
+
+```json
+{
+  "port": 5968,
+  "baseUrl": "http://localhost:5968",
+  "realm": "Awesome uplodah",
+  "logLevel": "info",
+  "maxUploadSizeMb": 500,
+  "storage": {
+    "/": {},
+    "/dropbox": {
+      "expireSeconds": 86400
+    },
+    "/archive": {
+      "readonly": true
+    }
+  }
+}
+```
+
+Note: The default container command already specifies `--config-file /data/config.json --storage-dir /storage`.
+If you need a different storage directory or config file path, override the container command explicitly.
+
+### Volume mounts and configuration
+
+- `/data`: Default location for `config.json` and other runtime files you want to place beside it
+- `/storage`: Default upload storage directory
+
+**Default behavior**: The Docker image runs with `--config-file /data/config.json --storage-dir /storage` by default.
+
+**Configuration priority** (highest to lowest):
+
+1. Custom command line arguments (when overriding CMD)
+2. Environment variables for settings not already fixed by the command line, such as `UPLODAH_BASE_URL`
+3. `config.json` values loaded from `/data/config.json`
+4. Built-in default values in `uplodah`
+
+### Example of Automatic Startup Using systemd
+
+Various methods exist for automatically starting containers with systemd.
+Below is a simple example of configuring a systemd service using Podman.
+This is a simple service unit file used before quadlets were introduced to Podman.
+By placing this file and having systemd recognize it, you can automatically start `uplodah`:
+
+`/etc/systemd/system/container-uplodah.service`:
+
+```ini
+# container-uplodah.service
+
+[Unit]
+Description=Podman container-uplodah.service
+Documentation=man:podman-generate-systemd(1)
+Wants=network-online.target
+After=network-online.target
+RequiresMountsFor=%t/containers
+
+[Service]
+Environment=PODMAN_SYSTEMD_UNIT=%n
+Restart=always
+RestartSec=30
+TimeoutStopSec=70
+ExecStart=/usr/bin/podman run \
+        --cidfile=%t/%n.ctr-id \
+        --cgroups=no-conmon \
+        --rm \
+        --sdnotify=conmon \
+        --replace \
+        -d \
+        -p 5968:5968 \
+        --name uplodah \
+        -v /export/data:/data -v /export/storage:/storage docker.io/kekyo/uplodah:latest
+ExecStop=/usr/bin/podman stop \
+        --ignore -t 10 \
+        --cidfile=%t/%n.ctr-id
+ExecStopPost=/usr/bin/podman rm \
+        -f \
+        --ignore -t 10 \
+        --cidfile=%t/%n.ctr-id
+Type=notify
+NotifyAccess=all
+
+[Install]
+WantedBy=default.target
+```
+
+---
+
+## Building the Docker image (Advanced)
+
+The build of the `uplodah` Docker image uses Podman.
+
+### Multi-platform build with Podman (recommended)
+
+Use the provided multi-platform build script that uses Podman to build for all supported architectures:
+
+```bash
+# Build for all platforms (local only, no push)
+./build-docker-multiplatform.sh
+
+# Build and push to Docker Hub
+./build-docker-multiplatform.sh --push
+
+# Build for specific platforms only
+./build-docker-multiplatform.sh --platforms linux/amd64,linux/arm64
+
+# Push with custom Docker Hub username
+OCI_SERVER_USER=yourusername ./build-docker-multiplatform.sh --push
+
+# Inspect existing manifest
+./build-docker-multiplatform.sh --inspect
+```
+
+**Important**: For cross-platform builds, QEMU emulation must be configured first:
+
+```bash
+# Option 1: Use QEMU container (recommended)
+sudo podman run --rm --privileged docker.io/multiarch/qemu-user-static --reset -p yes
+
+# Option 2: Install system packages
+# Ubuntu/Debian:
+sudo apt-get update && sudo apt-get install -y qemu-user-static
+# Fedora/RHEL:
+sudo dnf install -y qemu-user-static
+
+# Verify QEMU is working:
+podman run --rm --platform linux/arm64 alpine:latest uname -m
+# Should output: aarch64
+```
+
+Without QEMU, you can only build for your native architecture.
+
+---
+
 ## Notes
 
 ### Authentication
@@ -513,11 +746,6 @@ If you expose it on a public network, add protection such as Basic authenticatio
 ### UI Availability
 
 If the UI build is not found in the runtime environment, the root Web UI at `/` is disabled, but the upload, listing, and download API routes remain available.
-
-## TODO
-
-- Supports authentication.
-- Supports Docker images.
 
 ## Other
 
