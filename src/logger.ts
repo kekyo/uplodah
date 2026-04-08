@@ -1,4 +1,4 @@
-// uplodah - Universal file upload/download server.
+// uplodah - Simple and modern universal file upload/download server.
 // Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
 // Under MIT.
 // https://github.com/kekyo/uplodah
@@ -17,19 +17,21 @@ const logLevelPriority: Record<LogLevel, number> = {
 };
 
 /**
- * Creates a console logger with log level filtering.
- * @param prefix Prefix label displayed before each log line.
- * @param logLevel Minimum level to emit.
- * @returns Logger instance.
+ * Create a console logger with log level filtering
+ * @param prefix - Optional prefix
+ * @param logLevel - Log level to filter messages (default: 'info')
+ * @returns The logger
  */
 export const createConsoleLogger = (
-  prefix: string | undefined,
+  prefix?: string,
   logLevel: LogLevel = 'info'
 ): Logger => {
   const currentLogLevel = logLevelPriority[logLevel];
 
-  const shouldLog = (level: LogLevel): boolean =>
-    logLevelPriority[level] >= currentLogLevel;
+  const shouldLog = (level: LogLevel): boolean => {
+    return logLevelPriority[level] >= currentLogLevel;
+  };
+
   const noop = () => {};
 
   return prefix

@@ -1,10 +1,9 @@
-// uplodah - Universal file upload/download server.
+// uplodah - Simple and modern universal file upload/download server.
 // Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
 // Under MIT.
 // https://github.com/kekyo/uplodah
 
 import { useEffect, useRef, useState } from 'react';
-import dayjs from 'dayjs';
 import {
   Accordion,
   AccordionDetails,
@@ -20,99 +19,131 @@ import {
   IconButton,
   InputLabel,
   LinearProgress,
+  List,
+  ListItemIcon,
   MenuItem,
   Paper,
   Select,
   Stack,
-  TextField,
   Typography,
 } from '@mui/material';
-import CloseIcon from '@mui/icons-material/Close';
-import CloudUploadIcon from '@mui/icons-material/CloudUpload';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import ErrorIcon from '@mui/icons-material/Error';
-import FileUploadIcon from '@mui/icons-material/FileUpload';
-import ClearIcon from '@mui/icons-material/Clear';
+import {
+  CheckCircle as SuccessIcon,
+  Clear as ClearIcon,
+  Close as CloseIcon,
+  CloudUpload as UploadIcon,
+  Error as ErrorIcon,
+  FileUpload as FileUploadIcon,
+} from '@mui/icons-material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import type { UploadDirectory, UploadResponse } from '../../types';
+import { TypedMessage, useTypedMessage } from 'typed-message';
+import { messages } from '../../generated/messages';
 import { apiFetch } from '../utils/apiClient';
-import { buildUploadRequestPath } from '../utils/uploadFileName';
 
 interface UploadDrawerProps {
   open: boolean;
   onClose: () => void;
-  onUploadSuccess: () => Promise<void>;
-  uploadDirectories: UploadDirectory[];
-  uploadDirectoriesLoading: boolean;
-  uploadDirectoriesError: string | undefined;
+  onUploadSuccess: () => void;
+  serverConfig?: {
+    storageDirectories?: string[];
+  } | null;
 }
 
 interface UploadResult {
   fileName: string;
   success: boolean;
+  uploadId?: string;
+  publicPath?: string;
   message?: string;
-  uploadedAt?: string;
-  status: 'pending' | 'uploading' | 'success' | 'error';
+  status: 'uploading' | 'success' | 'error';
 }
 
-const formatUploadTimestamp = (
-  uploadedAt: string | undefined
-): string | undefined =>
-  uploadedAt ? dayjs(uploadedAt).format('YYYY/MM/DD HH:mm:ss') : undefined;
+interface UploadResultSummaryContentProps {
+  fileName: string;
+  uploadId: string | undefined;
+}
 
-const getDefaultDirectoryPath = (
-  uploadDirectories: UploadDirectory[]
-): string => uploadDirectories[0]?.path ?? '';
+const encodePublicPath = (publicPath: string): string =>
+  publicPath
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
 
-const formatDirectoryLabel = (directoryPath: string): string =>
-  directoryPath === '/' ? 'Root (/)' : directoryPath;
-
-const formatDirectoryDescription = (
-  uploadDirectory: UploadDirectory | undefined
+const joinDirectoryAndFileName = (
+  directoryPath: string,
+  fileName: string
 ): string => {
-  if (!uploadDirectory) {
-    return 'No upload destination is available.';
+  if (directoryPath === '/') {
+    return fileName;
   }
+  return `${directoryPath.replace(/^\/+/, '')}/${fileName}`;
+};
 
-  if (uploadDirectory.expireSeconds === undefined) {
-    return uploadDirectory.path === '/'
-      ? 'Files are stored at the storage root without automatic expiration.'
-      : `Files are stored under ${uploadDirectory.path} without automatic expiration.`;
-  }
-
-  return uploadDirectory.path === '/'
-    ? `Files are stored at the storage root and expire automatically after ${uploadDirectory.expireSeconds} seconds.`
-    : `Files are stored under ${uploadDirectory.path} and expire automatically after ${uploadDirectory.expireSeconds} seconds.`;
+/**
+ * Summary content for an uploaded file result row.
+ */
+export const UploadResultSummaryContent = ({
+  fileName,
+  uploadId,
+}: UploadResultSummaryContentProps) => {
+  return (
+    <Box sx={{ minWidth: 0, flexGrow: 1 }}>
+      <Typography
+        component="div"
+        sx={{
+          fontSize: '1rem',
+          lineHeight: 1.5,
+          overflowWrap: 'anywhere',
+          wordBreak: 'break-word',
+        }}
+      >
+        {fileName}
+      </Typography>
+      {uploadId && (
+        <Typography
+          component="div"
+          variant="caption"
+          color="text.secondary"
+          sx={{
+            mt: 0.25,
+            display: 'block',
+            overflowWrap: 'anywhere',
+            wordBreak: 'break-all',
+          }}
+        >
+          <TypedMessage
+            message={messages.UPLOAD_ID_LABEL}
+            params={{ uploadId }}
+          />
+        </Typography>
+      )}
+    </Box>
+  );
 };
 
 const UploadDrawer = ({
   open,
   onClose,
   onUploadSuccess,
-  uploadDirectories,
-  uploadDirectoriesLoading,
-  uploadDirectoriesError,
+  serverConfig,
 }: UploadDrawerProps) => {
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const getMessage = useTypedMessage();
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadResults, setUploadResults] = useState<UploadResult[]>([]);
   const [currentUploadIndex, setCurrentUploadIndex] = useState<number>(-1);
+  const [selectedDirectory, setSelectedDirectory] = useState('/');
   const [isDragging, setIsDragging] = useState(false);
-  const [selectedDirectoryPath, setSelectedDirectoryPath] = useState<string>(
-    getDefaultDirectoryPath(uploadDirectories)
-  );
   const dragCounter = useRef(0);
 
+  const uploadDirectories = serverConfig?.storageDirectories ?? ['/'];
+
   useEffect(() => {
-    setSelectedDirectoryPath((currentDirectoryPath) =>
-      uploadDirectories.some(
-        (uploadDirectory) => uploadDirectory.path === currentDirectoryPath
-      )
-        ? currentDirectoryPath
-        : getDefaultDirectoryPath(uploadDirectories)
-    );
-  }, [uploadDirectories]);
+    if (uploadDirectories.includes(selectedDirectory)) {
+      return;
+    }
+    setSelectedDirectory(uploadDirectories[0] || '/');
+  }, [selectedDirectory, uploadDirectories]);
 
   const handleFileSelection = (files: File[]) => {
     if (files.length > 0) {
@@ -130,19 +161,20 @@ const UploadDrawer = ({
   };
 
   const handleUpload = async () => {
-    const resolvedDirectoryPath =
-      selectedDirectoryPath || getDefaultDirectoryPath(uploadDirectories);
-    if (selectedFiles.length === 0 || resolvedDirectoryPath.length === 0)
+    if (selectedFiles.length === 0 || uploadDirectories.length === 0) {
       return;
+    }
 
     setUploading(true);
     const results: UploadResult[] = [];
 
-    for (let i = 0; i < selectedFiles.length; i++) {
-      const file = selectedFiles[i];
-      if (!file) continue;
+    for (let index = 0; index < selectedFiles.length; index += 1) {
+      const file = selectedFiles[index];
+      if (!file) {
+        continue;
+      }
 
-      setCurrentUploadIndex(i);
+      setCurrentUploadIndex(index);
 
       const result: UploadResult = {
         fileName: file.name,
@@ -154,23 +186,32 @@ const UploadDrawer = ({
         setUploadResults([...results, result]);
 
         const fileBuffer = await file.arrayBuffer();
+        const publicPath = joinDirectoryAndFileName(
+          selectedDirectory,
+          file.name
+        );
         const response = await apiFetch(
-          buildUploadRequestPath(file.name, resolvedDirectoryPath),
+          `api/upload/${encodePublicPath(publicPath)}`,
           {
             method: 'POST',
             headers: {
               'Content-Type': 'application/octet-stream',
             },
             body: fileBuffer,
+            credentials: 'same-origin',
           }
         );
 
         if (response.ok) {
-          const apiResult = (await response.json()) as UploadResponse;
+          const apiResult = await response.json();
           result.success = true;
           result.status = 'success';
-          result.uploadedAt = apiResult.file.uploadedAt;
-          result.message = `${apiResult.message}\nStored: ${apiResult.file.uploadId}`;
+          result.uploadId = apiResult.uploadId;
+          result.publicPath = apiResult.path;
+          result.message = `${apiResult.message}\nPath: ${apiResult.path}\nUpload ID: ${apiResult.uploadId}`;
+        } else if (response.status === 401) {
+          handleClose();
+          return;
         } else {
           const errorText = await response.text();
           result.status = 'error';
@@ -178,7 +219,11 @@ const UploadDrawer = ({
         }
       } catch (error) {
         result.status = 'error';
-        result.message = `Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
+        result.message = `${getMessage(messages.UPLOAD_ERROR)}: ${
+          error instanceof Error
+            ? error.message
+            : getMessage(messages.UNKNOWN_ERROR)
+        }`;
       }
 
       results.push(result);
@@ -188,15 +233,15 @@ const UploadDrawer = ({
     setUploading(false);
     setCurrentUploadIndex(-1);
 
-    if (results.some((entry) => entry.success)) {
-      await onUploadSuccess();
+    if (results.some((result) => result.success)) {
+      onUploadSuccess();
     }
   };
 
   const handleDragEnter = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    dragCounter.current++;
+    dragCounter.current += 1;
     if (event.dataTransfer.items && event.dataTransfer.items.length > 0) {
       setIsDragging(true);
     }
@@ -205,7 +250,7 @@ const UploadDrawer = ({
   const handleDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    dragCounter.current--;
+    dragCounter.current -= 1;
     if (dragCounter.current === 0) {
       setIsDragging(false);
     }
@@ -234,7 +279,6 @@ const UploadDrawer = ({
     setUploadResults([]);
     setCurrentUploadIndex(-1);
     setIsDragging(false);
-    setSelectedDirectoryPath(getDefaultDirectoryPath(uploadDirectories));
     dragCounter.current = 0;
     onClose();
   };
@@ -243,22 +287,16 @@ const UploadDrawer = ({
     setSelectedFiles([]);
     setUploadResults([]);
     setCurrentUploadIndex(-1);
-    setSelectedDirectoryPath(getDefaultDirectoryPath(uploadDirectories));
   };
 
   const removeFile = (index: number) => {
     setSelectedFiles((files) =>
-      files.filter((_, currentIndex) => currentIndex !== index)
+      files.filter((_, current) => current !== index)
     );
   };
 
   const getTotalSize = () =>
     selectedFiles.reduce((total, file) => total + file.size, 0);
-
-  const selectedUploadDirectory =
-    uploadDirectories.find(
-      (uploadDirectory) => uploadDirectory.path === selectedDirectoryPath
-    ) ?? uploadDirectories[0];
 
   return (
     <Drawer
@@ -291,7 +329,7 @@ const UploadDrawer = ({
           }}
         >
           <Typography variant="h6" component="h2">
-            Upload Files
+            <TypedMessage message={messages.UPLOAD_FILES_TITLE} />
           </Typography>
           <IconButton onClick={handleClose} edge="end">
             <CloseIcon />
@@ -303,8 +341,34 @@ const UploadDrawer = ({
         {uploadResults.length === 0 ? (
           <Box>
             <Typography variant="body1" sx={{ mb: 2 }}>
-              Select files to upload.
+              <TypedMessage message={messages.SELECT_UPLOAD_FILES} />
             </Typography>
+
+            {uploadDirectories.length === 0 ? (
+              <Alert severity="warning" sx={{ mb: 3 }}>
+                <TypedMessage message={messages.NO_UPLOAD_DIRECTORIES} />
+              </Alert>
+            ) : (
+              <FormControl fullWidth sx={{ mb: 3 }}>
+                <InputLabel id="upload-directory-label">
+                  {getMessage(messages.UPLOAD_DIRECTORY)}
+                </InputLabel>
+                <Select
+                  labelId="upload-directory-label"
+                  value={selectedDirectory}
+                  label={getMessage(messages.UPLOAD_DIRECTORY)}
+                  onChange={(event) =>
+                    setSelectedDirectory(event.target.value as string)
+                  }
+                >
+                  {uploadDirectories.map((directory) => (
+                    <MenuItem key={directory} value={directory}>
+                      {directory}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
 
             <Paper
               sx={{
@@ -330,7 +394,7 @@ const UploadDrawer = ({
               }}
               variant="outlined"
               elevation={0}
-              onClick={() => inputRef.current?.click()}
+              onClick={() => document.getElementById('file-input')?.click()}
             >
               <FileUploadIcon
                 sx={{
@@ -343,33 +407,26 @@ const UploadDrawer = ({
 
               {isDragging ? (
                 <Typography variant="h6" color="primary" sx={{ mb: 1 }}>
-                  Drop files here
+                  <TypedMessage message={messages.DROP_FILES_HERE} />
                 </Typography>
               ) : (
                 <>
                   <Typography variant="h6" color="text.primary" sx={{ mb: 1 }}>
-                    Drag & drop files
+                    <TypedMessage message={messages.DRAG_DROP_FILES} />
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Or click to browse
+                    <TypedMessage message={messages.OR_CLICK_TO_BROWSE} />
                   </Typography>
                 </>
               )}
             </Paper>
 
-            <TextField
+            <input
               id="file-input"
               type="file"
-              fullWidth
-              variant="outlined"
-              slotProps={{
-                htmlInput: {
-                  multiple: true,
-                },
-              }}
-              inputRef={inputRef}
+              multiple
               onChange={handleFileChange}
-              sx={{ display: 'none' }}
+              style={{ display: 'none' }}
             />
 
             {selectedFiles.length > 0 && (
@@ -379,14 +436,25 @@ const UploadDrawer = ({
                   color="text.secondary"
                   sx={{ mb: 1 }}
                 >
-                  {selectedFiles.length} file
-                  {selectedFiles.length !== 1 ? 's' : ''} selected (
-                  {(getTotalSize() / 1024 / 1024).toFixed(2)} MB):
+                  <TypedMessage
+                    message={messages.SELECTED_FILES}
+                    params={{
+                      count: selectedFiles.length,
+                      plural: selectedFiles.length !== 1 ? 's' : '',
+                      size: (getTotalSize() / 1024 / 1024).toFixed(2),
+                    }}
+                  />
+                  :
                 </Typography>
-                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                <Stack
+                  direction="row"
+                  spacing={1}
+                  useFlexGap
+                  sx={{ flexWrap: 'wrap' }}
+                >
                   {selectedFiles.map((file, index) => (
                     <Chip
-                      key={`${file.name}-${file.size}-${index}`}
+                      key={`${file.name}-${index}`}
                       label={file.name}
                       onDelete={() => removeFile(index)}
                       deleteIcon={<ClearIcon />}
@@ -405,8 +473,14 @@ const UploadDrawer = ({
                   color="text.secondary"
                   sx={{ mb: 1 }}
                 >
-                  Uploading {currentUploadIndex + 1} / {selectedFiles.length}:{' '}
-                  {selectedFiles[currentUploadIndex]?.name || ''}
+                  <TypedMessage
+                    message={messages.UPLOADING_PROGRESS}
+                    params={{
+                      current: currentUploadIndex + 1,
+                      total: selectedFiles.length,
+                      fileName: selectedFiles[currentUploadIndex]?.name || '',
+                    }}
+                  />
                 </Typography>
                 <LinearProgress
                   variant="determinate"
@@ -415,69 +489,29 @@ const UploadDrawer = ({
               </Box>
             )}
 
-            {uploadDirectoriesError ? (
-              <Alert severity="error" sx={{ mb: 2 }}>
-                {uploadDirectoriesError}
-              </Alert>
-            ) : null}
-
-            <FormControl
-              fullWidth
-              sx={{ mb: 1 }}
-              disabled={
-                uploading ||
-                uploadDirectoriesLoading ||
-                uploadDirectories.length === 0
-              }
-            >
-              <InputLabel id="upload-directory-select-label">
-                Upload directory
-              </InputLabel>
-              <Select
-                labelId="upload-directory-select-label"
-                value={selectedDirectoryPath}
-                label="Upload directory"
-                onChange={(event) =>
-                  setSelectedDirectoryPath(String(event.target.value))
-                }
-              >
-                {uploadDirectories.map((uploadDirectory) => (
-                  <MenuItem
-                    key={uploadDirectory.path}
-                    value={uploadDirectory.path}
-                  >
-                    {formatDirectoryLabel(uploadDirectory.path)}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              The selected directory and file name are embedded in the upload
-              request URL.
-              {uploadDirectoriesLoading
-                ? ' Upload destinations are loading.'
-                : ` ${formatDirectoryDescription(selectedUploadDirectory)}`}
-            </Typography>
-
             <Button
               variant="contained"
               fullWidth
               startIcon={
-                uploading ? <CircularProgress size={20} /> : <CloudUploadIcon />
+                uploading ? <CircularProgress size={20} /> : <UploadIcon />
               }
-              onClick={() => void handleUpload()}
+              onClick={handleUpload}
               disabled={
                 selectedFiles.length === 0 ||
                 uploading ||
-                uploadDirectoriesLoading ||
                 uploadDirectories.length === 0
               }
               sx={{ mb: 2 }}
             >
               {uploading
-                ? `Uploading ${currentUploadIndex + 1} / ${selectedFiles.length}`
-                : `Upload ${selectedFiles.length} file${selectedFiles.length !== 1 ? 's' : ''}`}
+                ? getMessage(messages.UPLOADING_N_OF_M, {
+                    current: currentUploadIndex + 1,
+                    total: selectedFiles.length,
+                  })
+                : getMessage(messages.UPLOAD_N_FILES, {
+                    count: selectedFiles.length,
+                    plural: selectedFiles.length !== 1 ? 's' : '',
+                  })}
             </Button>
           </Box>
         ) : (
@@ -485,99 +519,71 @@ const UploadDrawer = ({
             <Box sx={{ mb: 3 }}>
               {uploadResults.filter((result) => result.status === 'success')
                 .length === uploadResults.length ? (
-                <Alert severity="success" icon={<CheckCircleIcon />}>
-                  All uploads completed successfully.
+                <Alert severity="success" icon={<SuccessIcon />}>
+                  <TypedMessage
+                    message={messages.ALL_UPLOADS_SUCCESS}
+                    params={{
+                      count: uploadResults.length,
+                      plural: uploadResults.length !== 1 ? 's' : '',
+                    }}
+                  />
                 </Alert>
               ) : uploadResults.filter((result) => result.status === 'error')
                   .length === uploadResults.length ? (
                 <Alert severity="error" icon={<ErrorIcon />}>
-                  All uploads failed.
+                  <TypedMessage message={messages.ALL_UPLOADS_FAILED} />
                 </Alert>
               ) : (
                 <Alert severity="warning">
-                  {
-                    uploadResults.filter(
-                      (result) => result.status === 'success'
-                    ).length
-                  }{' '}
-                  / {uploadResults.length} uploads succeeded.
+                  <TypedMessage
+                    message={messages.PARTIAL_UPLOAD_SUCCESS}
+                    params={{
+                      success: uploadResults.filter(
+                        (result) => result.status === 'success'
+                      ).length,
+                      total: uploadResults.length,
+                      plural: uploadResults.length !== 1 ? 's' : '',
+                    }}
+                  />
                 </Alert>
               )}
             </Box>
 
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-              Upload results
+              <TypedMessage message={messages.UPLOAD_RESULTS} />
             </Typography>
 
-            <Box
-              sx={{ mb: 3, display: 'flex', flexDirection: 'column', gap: 1 }}
-            >
+            <List sx={{ mb: 3 }}>
               {uploadResults.map((result, index) => (
                 <Accordion
-                  key={`${result.fileName}-${result.status}-${index}`}
+                  key={`${result.fileName}-${index}`}
                   defaultExpanded={result.status === 'error'}
                 >
                   <AccordionSummary
                     expandIcon={<ExpandMoreIcon />}
                     sx={{
+                      alignItems: 'flex-start',
                       '& .MuiAccordionSummary-content': {
-                        marginY: 1,
+                        alignItems: 'flex-start',
+                        minWidth: 0,
                       },
                     }}
                   >
-                    <Box
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'flex-start',
-                        gap: 1.5,
-                        width: '100%',
-                        minWidth: 0,
-                      }}
-                    >
-                      <Box
-                        sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          width: 24,
-                          flexShrink: 0,
-                          color: 'text.secondary',
-                        }}
-                      >
-                        {result.status === 'success' ? (
-                          <CheckCircleIcon color="success" />
-                        ) : result.status === 'error' ? (
-                          <ErrorIcon color="error" />
-                        ) : result.status === 'uploading' ? (
-                          <CircularProgress size={20} />
-                        ) : null}
-                      </Box>
-                      <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                        <Typography
-                          sx={{
-                            fontWeight: 500,
-                            overflowWrap: 'anywhere',
-                          }}
-                        >
-                          {result.fileName}
-                        </Typography>
-                        {result.uploadedAt ? (
-                          <Typography
-                            variant="caption"
-                            color="text.secondary"
-                            sx={{
-                              display: 'block',
-                              mt: 0.25,
-                            }}
-                          >
-                            Uploaded at:{' '}
-                            {formatUploadTimestamp(result.uploadedAt)}
-                          </Typography>
-                        ) : null}
-                      </Box>
-                    </Box>
+                    <ListItemIcon sx={{ minWidth: 40 }}>
+                      {result.status === 'success' ? (
+                        <SuccessIcon color="success" />
+                      ) : result.status === 'error' ? (
+                        <ErrorIcon color="error" />
+                      ) : (
+                        <CircularProgress size={20} />
+                      )}
+                    </ListItemIcon>
+                    <UploadResultSummaryContent
+                      fileName={result.fileName}
+                      uploadId={result.uploadId}
+                    />
                   </AccordionSummary>
-                  {result.message ? (
+                  {result.message && (
                     <AccordionDetails>
                       <Paper
                         sx={{
@@ -597,21 +603,20 @@ const UploadDrawer = ({
                             fontFamily: 'monospace',
                             fontSize: '0.75rem',
                             whiteSpace: 'pre-wrap',
-                            overflowWrap: 'anywhere',
                           }}
                         >
                           {result.message}
                         </Typography>
                       </Paper>
                     </AccordionDetails>
-                  ) : null}
+                  )}
                 </Accordion>
               ))}
-            </Box>
+            </List>
 
             <Box sx={{ display: 'flex', gap: 1 }}>
               <Button variant="outlined" onClick={resetForm} sx={{ flex: 1 }}>
-                Upload More
+                <TypedMessage message={messages.UPLOAD_MORE} />
               </Button>
             </Box>
           </Box>

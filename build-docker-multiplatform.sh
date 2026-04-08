@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Multi-platform Podman build script for uplodah
-# Supports: linux/amd64, linux/arm64
+# Supports: linux/amd64, linux/arm64, linux/arm/v7
 
 set -e
 
@@ -11,12 +11,17 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Configuration
+# Configuration (same as build-docker.sh)
 OCI_SERVER="docker.io"
 IMAGE_NAME="uplodah"
 OCI_SERVER_USER=${OCI_SERVER_USER:-"kekyo"}
 PLATFORMS="${PLATFORMS:-linux/amd64,linux/arm64}"
 PUSH_TO_REGISTRY="${PUSH_TO_REGISTRY:-false}"
+VERIFY_TARGET_PLATFORMS="${VERIFY_TARGET_PLATFORMS:-true}"
+VERIFY_HOST_IMAGE="${VERIFY_HOST_IMAGE:-true}"
+QEMU_CHECK_IMAGE="${QEMU_CHECK_IMAGE:-docker.io/library/debian:trixie-slim}"
+BUILD_JOBS="${BUILD_JOBS:-2}"
+NODE_IMAGE="${NODE_IMAGE:-node:24-trixie-slim}"
 
 # Functions
 print_info() {
@@ -56,8 +61,13 @@ check_dependencies() {
         exit 1
     fi
 
+    if ! command -v curl &> /dev/null; then
+        print_error "curl is not installed (required for smoke tests)"
+        exit 1
+    fi
+
     # Check for QEMU support for cross-platform builds
-    if ! podman run --rm --platform linux/arm64 alpine:latest true &> /dev/null; then
+    if ! podman run --rm --platform linux/arm64 "${QEMU_CHECK_IMAGE}" true &> /dev/null; then
         print_warning "QEMU emulation is not properly configured for cross-platform builds"
         print_error "Cannot build for non-native architectures without QEMU"
         print_info ""
@@ -73,7 +83,7 @@ check_dependencies() {
         print_info "  sudo dnf install -y qemu-user-static"
         print_info ""
         print_info "After setup, verify with:"
-        print_info "  podman run --rm --platform linux/arm64 alpine:latest uname -m"
+        print_info "  podman run --rm --platform linux/arm64 ${QEMU_CHECK_IMAGE} uname -m"
         print_info ""
 
         # Check if we're trying to build for non-native platforms
@@ -99,6 +109,163 @@ check_dependencies() {
     print_info "All dependencies are satisfied"
 }
 
+get_host_platform() {
+    local native_arch
+    native_arch=$(uname -m)
+    case "$native_arch" in
+        x86_64) echo "linux/amd64" ;;
+        aarch64) echo "linux/arm64" ;;
+        armv7l) echo "linux/arm/v7" ;;
+        *) echo "linux/$native_arch" ;;
+    esac
+}
+
+collect_target_platforms() {
+    mapfile -t TARGET_PLATFORMS < <(
+        echo "$PLATFORMS" \
+            | tr ',' '\n' \
+            | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+            | sed '/^$/d'
+    )
+}
+
+validate_build_jobs() {
+    if ! [[ "$BUILD_JOBS" =~ ^[0-9]+$ ]]; then
+        print_error "BUILD_JOBS must be an integer"
+        exit 1
+    fi
+
+    if [ "$BUILD_JOBS" -lt 1 ] || [ "$BUILD_JOBS" -gt 2 ]; then
+        print_error "BUILD_JOBS must be between 1 and 2"
+        exit 1
+    fi
+}
+
+platform_to_tag_suffix() {
+    echo "${1//\//-}"
+}
+
+build_platform_image() {
+    local platform="$1"
+    local image="$2"
+
+    print_info "Building ${platform} as ${image}..."
+    podman build \
+        --build-arg "NODE_IMAGE=${NODE_IMAGE}" \
+        --platform "$platform" \
+        --tag "$image" \
+        .
+}
+
+fail_smoke_check() {
+    local container_name="$1"
+    local reason="$2"
+
+    print_error "$reason"
+    print_info "Container logs ($container_name):"
+    podman logs "$container_name" || true
+    podman rm -f "$container_name" >/dev/null 2>&1 || true
+    exit 1
+}
+
+run_binary_load_check() {
+    local platform="$1"
+    local image="$2"
+
+    print_info "Binary load check on ${platform}..."
+    if ! podman run --rm --platform "$platform" --entrypoint node "$image" \
+        -e "require('sodium-native'); require('@fastify/secure-session'); console.log('binary-load-ok');"; then
+        print_error "Binary load check failed on ${platform}"
+        exit 1
+    fi
+}
+
+run_http_smoke_check() {
+    local platform="$1"
+    local image="$2"
+    local label="$3"
+
+    local container_name
+    local status
+    local port_line
+    local host_port
+    local ready=false
+    local run_platform_args=()
+
+    if [ -n "$platform" ]; then
+        run_platform_args=(--platform "$platform")
+    fi
+
+    container_name="uplodah-smoke-${label}-$(date +%s)-${RANDOM}"
+
+    print_info "HTTP smoke check (${label})..."
+    if ! podman run -d --name "$container_name" -p 127.0.0.1::5968 \
+        "${run_platform_args[@]}" "$image" >/dev/null; then
+        print_error "Failed to start container for smoke check (${label})"
+        exit 1
+    fi
+
+    port_line=$(podman port "$container_name" 5968/tcp | head -n 1 || true)
+    host_port="${port_line##*:}"
+
+    if ! [[ "$host_port" =~ ^[0-9]+$ ]]; then
+        fail_smoke_check "$container_name" "Failed to detect mapped host port for ${label}"
+    fi
+
+    for _ in $(seq 1 90); do
+        status=$(podman inspect -f '{{.State.Status}}' "$container_name" 2>/dev/null || echo "unknown")
+        if [ "$status" != "running" ]; then
+            fail_smoke_check "$container_name" "Container exited before ready (${label})"
+        fi
+
+        if curl -fsS --max-time 2 "http://127.0.0.1:${host_port}/health" >/dev/null 2>&1; then
+            ready=true
+            break
+        fi
+        sleep 1
+    done
+
+    if [ "$ready" != "true" ]; then
+        fail_smoke_check "$container_name" "Timed out waiting for server startup (${label})"
+    fi
+
+    if ! curl -fsS --max-time 5 "http://127.0.0.1:${host_port}/health" \
+        | jq -e '.status == "ok"' >/dev/null; then
+        fail_smoke_check "$container_name" "Health endpoint check failed (${label})"
+    fi
+
+    if ! curl -fsS --max-time 5 "http://127.0.0.1:${host_port}/api/config" \
+        | jq -e '.name == "uplodah" and .authMode == "none" and (.storageDirectories | type == "array")' >/dev/null; then
+        fail_smoke_check "$container_name" "API config endpoint check failed (${label})"
+    fi
+
+    if ! curl -fsS --max-time 5 -H 'Accept: text/html' "http://127.0.0.1:${host_port}/" \
+        | grep -qi '<!doctype html>'; then
+        fail_smoke_check "$container_name" "UI endpoint check failed (${label})"
+    fi
+
+    podman rm -f "$container_name" >/dev/null 2>&1 || true
+}
+
+verify_target_platforms() {
+    print_info "Verifying all target platforms..."
+    while IFS= read -r platform; do
+        [ -z "$platform" ] && continue
+        run_binary_load_check "$platform" "$LOCAL_IMAGE"
+        run_http_smoke_check "$platform" "$LOCAL_IMAGE" "target-${platform//\//-}"
+    done < <(echo "$PLATFORMS" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed '/^$/d')
+    print_info "All target platform checks passed"
+}
+
+verify_host_image() {
+    local host_platform
+    host_platform=$(get_host_platform)
+
+    print_info "Verifying host image behavior on ${host_platform}..."
+    run_http_smoke_check "" "$LOCAL_IMAGE" "host-default"
+    print_info "Host image check passed"
+}
+
 build_application() {
     print_info "Building application..."
 
@@ -118,14 +285,23 @@ build_application() {
 }
 
 build_multiplatform_images() {
-    # Image names
-    LOCAL_IMAGE="${IMAGE_NAME}:${VERSION}"
-    LOCAL_LATEST="${IMAGE_NAME}:latest"
+    # Image names (following build-docker.sh convention)
+    LOCAL_IMAGE="localhost/${IMAGE_NAME}:${VERSION}"
+    LOCAL_LATEST="localhost/${IMAGE_NAME}:latest"
     REMOTE_IMAGE="${OCI_SERVER}/${OCI_SERVER_USER}/${IMAGE_NAME}:${VERSION}"
     REMOTE_LATEST="${OCI_SERVER}/${OCI_SERVER_USER}/${IMAGE_NAME}:latest"
 
+    collect_target_platforms
+
+    if [ "${#TARGET_PLATFORMS[@]}" -eq 0 ]; then
+        print_error "No target platforms were specified"
+        exit 1
+    fi
+
     print_info "Building multi-platform images..."
     print_info "Platforms: $PLATFORMS"
+    print_info "Build jobs: $BUILD_JOBS"
+    print_info "Node image: $NODE_IMAGE"
     print_info "Local image: ${LOCAL_IMAGE}"
     print_info "Remote image: ${REMOTE_IMAGE}"
 
@@ -138,16 +314,49 @@ build_multiplatform_images() {
         podman manifest create "${MANIFEST_NAME}"
     }
 
-    # Build for all platforms and add to manifest
+    # Build each platform image, optionally in parallel, then compose the manifest.
     print_info "Building for platforms: ${PLATFORMS}"
-    podman build \
-        --platform "${PLATFORMS}" \
-        --manifest "${MANIFEST_NAME}" \
-        .
+    local platform
+    local platform_image
+    local -a platform_images=()
+    local -a running_pids=()
+    local pid
+    declare -A build_pid_to_platform=()
+
+    for platform in "${TARGET_PLATFORMS[@]}"; do
+        platform_image="${LOCAL_IMAGE}-$(platform_to_tag_suffix "$platform")"
+        platform_images+=("$platform_image")
+        build_platform_image "$platform" "$platform_image" &
+        pid=$!
+        running_pids+=("$pid")
+        build_pid_to_platform["$pid"]="$platform"
+
+        if [ "${#running_pids[@]}" -ge "$BUILD_JOBS" ]; then
+            pid="${running_pids[0]}"
+            if ! wait "$pid"; then
+                print_error "Build failed for platform: ${build_pid_to_platform[$pid]}"
+                exit 1
+            fi
+            running_pids=("${running_pids[@]:1}")
+        fi
+    done
+
+    for pid in "${running_pids[@]}"; do
+        if ! wait "$pid"; then
+            print_error "Build failed for platform: ${build_pid_to_platform[$pid]}"
+            exit 1
+        fi
+    done
+
+    for platform_image in "${platform_images[@]}"; do
+        podman manifest add "${MANIFEST_NAME}" "containers-storage:${platform_image}"
+    done
 
     # Create latest tag by copying the versioned manifest
     print_info "Creating latest tag: ${LOCAL_LATEST}"
+    # Remove existing latest manifest if it exists
     podman manifest rm "${LOCAL_LATEST}" 2>/dev/null || true
+    # Tag the versioned manifest as latest
     podman tag "${MANIFEST_NAME}" "${LOCAL_LATEST}"
 
     print_info "Build completed successfully!"
@@ -156,6 +365,8 @@ build_multiplatform_images() {
 tag_remote_images() {
     print_info "Tagging images for remote registry..."
 
+    # Tag manifests for remote registry
+    # Note: With podman manifest, we'll push directly with the remote names
     print_info "Images are ready for push to:"
     print_info "  ${REMOTE_IMAGE}"
     print_info "  ${REMOTE_LATEST}"
@@ -165,11 +376,13 @@ push_to_registry() {
     if [ "$PUSH_TO_REGISTRY" = "true" ]; then
         print_info "Pushing manifests to registry..."
 
+        # Push versioned manifest
         print_info "Pushing ${REMOTE_IMAGE}..."
         podman manifest push \
             "${LOCAL_IMAGE}" \
             "docker://${REMOTE_IMAGE}"
 
+        # Push latest manifest
         print_info "Pushing ${REMOTE_LATEST}..."
         podman manifest push \
             "${LOCAL_LATEST}" \
@@ -202,7 +415,12 @@ Options:
     -h, --help              Show this help message
     -p, --push              Push images to registry after build
     --platforms PLATFORMS   Comma-separated list of platforms (default: linux/amd64,linux/arm64)
+    -j, --jobs JOBS         Number of platform builds to run in parallel (1-2, default: 1)
+    --node-image IMAGE      Base Node.js image to use for Docker builds (default: node:24-trixie-slim)
     --skip-app-build        Skip npm build step
+    --skip-target-verify    Skip target platform binary/smoke checks
+    --skip-host-smoke       Skip host-architecture smoke check
+    --skip-verify           Skip all post-build verification checks
     --inspect               Only inspect existing manifest
 
 Environment Variables:
@@ -210,9 +428,14 @@ Environment Variables:
     PLATFORMS               Target platforms
     PUSH_TO_REGISTRY        Set to 'true' to push images
     SKIP_APP_BUILD          Set to 'true' to skip npm build
+    BUILD_JOBS             Number of platform builds to run in parallel (1-2)
+    NODE_IMAGE             Base Node.js image to use for Docker builds (default: node:24-trixie-slim)
+    VERIFY_TARGET_PLATFORMS Set to 'false' to skip target verification
+    VERIFY_HOST_IMAGE       Set to 'false' to skip host smoke check
+    QEMU_CHECK_IMAGE        Container image used to verify QEMU emulation
 
 Examples:
-    # Build for all configured platforms without pushing
+    # Build for all platforms without pushing
     $0
 
     # Build and push to Docker Hub
@@ -220,6 +443,15 @@ Examples:
 
     # Build for specific platforms
     $0 --platforms linux/amd64,linux/arm64
+
+    # Build amd64 and arm64 in parallel
+    $0 --platforms linux/amd64,linux/arm64 --jobs 2
+
+    # Override the default Node image (example: Node 22 on Bookworm)
+    $0 --platforms linux/amd64,linux/arm64 --jobs 2 --node-image node:22-bookworm-slim
+
+    # Build and skip all verification checks
+    $0 --skip-verify
 
     # Push with custom user
     OCI_SERVER_USER=myuser $0 --push
@@ -248,8 +480,29 @@ while [[ $# -gt 0 ]]; do
             PLATFORMS="$2"
             shift 2
             ;;
+        -j|--jobs)
+            BUILD_JOBS="$2"
+            shift 2
+            ;;
+        --node-image)
+            NODE_IMAGE="$2"
+            shift 2
+            ;;
         --skip-app-build)
             SKIP_APP_BUILD="true"
+            shift
+            ;;
+        --skip-target-verify)
+            VERIFY_TARGET_PLATFORMS="false"
+            shift
+            ;;
+        --skip-host-smoke)
+            VERIFY_HOST_IMAGE="false"
+            shift
+            ;;
+        --skip-verify)
+            VERIFY_TARGET_PLATFORMS="false"
+            VERIFY_HOST_IMAGE="false"
             shift
             ;;
         --inspect)
@@ -269,7 +522,12 @@ main() {
     print_info "Starting multi-platform Podman build process"
     print_info "Registry: ${OCI_SERVER}/${OCI_SERVER_USER}"
     print_info "Platforms: $PLATFORMS"
+    print_info "Build jobs: $BUILD_JOBS"
+    print_info "Node image: $NODE_IMAGE"
 
+    validate_build_jobs
+
+    # Get version information
     get_version
 
     if [ "$INSPECT_ONLY" = "true" ]; then
@@ -286,6 +544,19 @@ main() {
     fi
 
     build_multiplatform_images
+
+    if [ "$VERIFY_TARGET_PLATFORMS" = "true" ]; then
+        verify_target_platforms
+    else
+        print_warning "Skipping target platform verification (VERIFY_TARGET_PLATFORMS=false)"
+    fi
+
+    if [ "$VERIFY_HOST_IMAGE" = "true" ]; then
+        verify_host_image
+    else
+        print_warning "Skipping host image smoke check (VERIFY_HOST_IMAGE=false)"
+    fi
+
     tag_remote_images
     push_to_registry
     inspect_manifest
@@ -296,8 +567,8 @@ main() {
     if [ "$PUSH_TO_REGISTRY" != "true" ]; then
         print_info ""
         print_info "To test the multi-arch image locally:"
-        print_info "  podman run --rm --platform linux/amd64 -p 5968:5968 -v \$(pwd)/storage:/storage -v \$(pwd)/data:/data ${LOCAL_IMAGE}"
-        print_info "  podman run --rm --platform linux/arm64 -p 5968:5968 -v \$(pwd)/storage:/storage -v \$(pwd)/data:/data ${LOCAL_IMAGE}"
+        print_info "  podman run --platform linux/amd64 -p 5968:5968 ${LOCAL_IMAGE}"
+        print_info "  podman run --platform linux/arm64 -p 5968:5968 ${LOCAL_IMAGE}"
     fi
 }
 

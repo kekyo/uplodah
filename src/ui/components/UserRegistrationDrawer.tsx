@@ -1,0 +1,396 @@
+// uplodah - Simple and modern universal file upload/download server.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/uplodah
+
+import { useState } from 'react';
+import {
+  Drawer,
+  Box,
+  Typography,
+  Button,
+  TextField,
+  Alert,
+  CircularProgress,
+  IconButton,
+  Divider,
+  Paper,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+} from '@mui/material';
+import {
+  Close as CloseIcon,
+  PersonAdd as PersonAddIcon,
+  CheckCircle as SuccessIcon,
+  Error as ErrorIcon,
+} from '@mui/icons-material';
+import { PasswordStrengthIndicator } from './PasswordStrengthIndicator';
+import { apiFetch } from '../utils/apiClient';
+import { TypedMessage, useTypedMessage } from 'typed-message';
+import { messages } from '../../generated/messages';
+
+interface UserRegistrationDrawerProps {
+  open: boolean;
+  onClose: () => void;
+  onRegistrationSuccess: () => void;
+}
+
+interface RegistrationResult {
+  success: boolean;
+  message: string;
+  apiPassword?: string;
+}
+
+type UserRole = 'read' | 'publish' | 'admin';
+
+const UserRegistrationDrawer = ({
+  open,
+  onClose,
+  onRegistrationSuccess,
+}: UserRegistrationDrawerProps) => {
+  const getMessage = useTypedMessage();
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [role, setRole] = useState<UserRole>('read');
+  const [registering, setRegistering] = useState(false);
+  const [result, setResult] = useState<RegistrationResult | null>(null);
+
+  const handleRegister = async () => {
+    // Validate inputs
+    if (!username.trim() || !password || !confirmPassword) {
+      setResult({
+        success: false,
+        message: getMessage(messages.VALIDATION_ALL_FIELDS_REQUIRED),
+      });
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setResult({
+        success: false,
+        message: getMessage(messages.VALIDATION_PASSWORDS_DONT_MATCH),
+      });
+      return;
+    }
+
+    if (password.length < 4) {
+      setResult({
+        success: false,
+        message: getMessage(messages.VALIDATION_PASSWORD_TOO_SHORT),
+      });
+      return;
+    }
+
+    if (!/^[a-zA-Z0-9_-]+$/.test(username.trim())) {
+      setResult({
+        success: false,
+        message: getMessage(messages.VALIDATION_USERNAME_INVALID),
+      });
+      return;
+    }
+
+    setRegistering(true);
+    setResult(null);
+
+    try {
+      // Use Fastify user management endpoint
+      const endpoint = 'api/ui/users';
+
+      // Prepare request body
+      const requestBody = {
+        action: 'create',
+        username,
+        password,
+        role,
+      };
+
+      const response = await apiFetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify(requestBody),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setResult({
+          success: true,
+          message: data.message || getMessage(messages.USER_REGISTERED_SUCCESS),
+          apiPassword: data.apiPassword,
+        });
+        onRegistrationSuccess();
+      } else if (response.status === 401) {
+        // Session expired - handled by apiFetch interceptor
+        handleClose();
+        return;
+      } else {
+        setResult({
+          success: false,
+          message:
+            data.message ||
+            `Registration failed: ${response.status} ${response.statusText}`,
+        });
+      }
+    } catch (error) {
+      setResult({
+        success: false,
+        message: `${getMessage(messages.USER_REGISTRATION_FAILED)}: ${error instanceof Error ? error.message : getMessage(messages.UNKNOWN_ERROR)}`,
+      });
+    } finally {
+      setRegistering(false);
+    }
+  };
+
+  const handleClose = () => {
+    setUsername('');
+    setPassword('');
+    setConfirmPassword('');
+    setRole('read');
+    setRegistering(false);
+    setResult(null);
+    onClose();
+  };
+
+  const resetForm = () => {
+    setUsername('');
+    setPassword('');
+    setConfirmPassword('');
+    setRole('read');
+    setResult(null);
+  };
+
+  const getRoleDescription = (role: UserRole): string => {
+    switch (role) {
+      case 'read':
+        return getMessage(messages.ROLE_READONLY_DESC);
+      case 'publish':
+        return getMessage(messages.ROLE_PUBLISH_DESC);
+      case 'admin':
+        return getMessage(messages.ROLE_ADMIN_DESC);
+      default:
+        return '';
+    }
+  };
+
+  const getRoleDisplayName = (role: UserRole): string => {
+    switch (role) {
+      case 'read':
+        return getMessage(messages.ROLE_READONLY_SHORT);
+      case 'publish':
+        return getMessage(messages.ROLE_PUBLISH_SHORT);
+      case 'admin':
+        return getMessage(messages.ROLE_ADMIN_SHORT);
+      default:
+        return role;
+    }
+  };
+
+  return (
+    <Drawer
+      anchor="right"
+      open={open}
+      onClose={handleClose}
+      variant="temporary"
+      sx={{
+        width: 400,
+        flexShrink: 0,
+        '& .MuiDrawer-paper': {
+          width: 400,
+          boxSizing: 'border-box',
+        },
+      }}
+    >
+      <Box sx={{ p: 3, height: '100%' }}>
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            mb: 3,
+          }}
+        >
+          <Typography variant="h6" component="h2">
+            <TypedMessage message={messages.REGISTER_USER} />
+          </Typography>
+          <IconButton onClick={handleClose} edge="end">
+            <CloseIcon />
+          </IconButton>
+        </Box>
+
+        <Divider sx={{ mb: 3 }} />
+
+        {!result ? (
+          <Box>
+            <Typography variant="body1" sx={{ mb: 3 }}>
+              <TypedMessage message={messages.ADD_NEW_USER_INSTRUCTION} />
+            </Typography>
+
+            <TextField
+              fullWidth
+              label={getMessage(messages.USERNAME)}
+              variant="outlined"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              disabled={registering}
+              sx={{ mb: 2 }}
+              helperText={getMessage(messages.USERNAME_HELPER)}
+            />
+
+            <TextField
+              fullWidth
+              label={getMessage(messages.PASSWORD)}
+              type="password"
+              variant="outlined"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={registering}
+              sx={{ mb: 1 }}
+              helperText={getMessage(messages.PASSWORD_MIN_LENGTH)}
+            />
+            <PasswordStrengthIndicator
+              password={password}
+              username={username}
+            />
+
+            <TextField
+              fullWidth
+              label={getMessage(messages.CONFIRM_PASSWORD)}
+              type="password"
+              variant="outlined"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              disabled={registering}
+              sx={{ mb: 2, mt: 2 }}
+            />
+
+            <FormControl fullWidth sx={{ mb: 2 }}>
+              <InputLabel>{getMessage(messages.ROLE)}</InputLabel>
+              <Select
+                value={role}
+                label={getMessage(messages.ROLE)}
+                onChange={(e) => setRole(e.target.value as UserRole)}
+                disabled={registering}
+              >
+                <MenuItem value="read">
+                  <TypedMessage message={messages.ROLE_READONLY_SHORT} />
+                </MenuItem>
+                <MenuItem value="publish">
+                  <TypedMessage message={messages.ROLE_PUBLISH_SHORT} />
+                </MenuItem>
+                <MenuItem value="admin">
+                  <TypedMessage message={messages.ROLE_ADMIN_SHORT} />
+                </MenuItem>
+              </Select>
+            </FormControl>
+
+            <Paper
+              sx={{ p: 2, mb: 3, bgcolor: 'background.default' }}
+              variant="outlined"
+              elevation={0}
+            >
+              <Typography variant="body2" color="text.secondary" gutterBottom>
+                <strong>{getRoleDisplayName(role)}:</strong>
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {getRoleDescription(role)}
+              </Typography>
+            </Paper>
+
+            <Button
+              variant="contained"
+              fullWidth
+              startIcon={
+                registering ? <CircularProgress size={20} /> : <PersonAddIcon />
+              }
+              onClick={handleRegister}
+              disabled={
+                registering || !username.trim() || !password || !confirmPassword
+              }
+              sx={{ mb: 2 }}
+            >
+              {registering
+                ? getMessage(messages.REGISTERING)
+                : getMessage(messages.REGISTER)}
+            </Button>
+          </Box>
+        ) : (
+          <Box>
+            <Alert
+              severity={result.success ? 'success' : 'error'}
+              icon={result.success ? <SuccessIcon /> : <ErrorIcon />}
+              sx={{ mb: 3 }}
+            >
+              {result.success
+                ? getMessage(messages.USER_REGISTERED_SUCCESS)
+                : getMessage(messages.USER_REGISTRATION_FAILED)}
+            </Alert>
+
+            {result.success && (
+              <Paper sx={{ p: 2, mb: 3 }} variant="outlined" elevation={0}>
+                <Typography variant="body2" color="text.secondary" gutterBottom>
+                  <TypedMessage
+                    message={messages.USER_CREATED_SUCCESS_MESSAGE}
+                  />
+                </Typography>
+                <Typography
+                  variant="body1"
+                  sx={{ fontWeight: 'medium', mb: 1 }}
+                >
+                  {getMessage(messages.USERNAME)}: {username}
+                </Typography>
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ mb: 2 }}
+                >
+                  {getMessage(messages.ROLE)}: {getRoleDisplayName(role)}
+                </Typography>
+              </Paper>
+            )}
+
+            {result.message && (
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="body2" color="text.secondary" gutterBottom>
+                  <TypedMessage message={messages.DETAILS_LABEL} />
+                </Typography>
+                <Paper
+                  sx={{
+                    p: 1,
+                    borderRadius: 1,
+                  }}
+                  variant="outlined"
+                  elevation={0}
+                >
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      fontFamily: 'monospace',
+                      fontSize: '0.75rem',
+                      whiteSpace: 'pre-wrap',
+                    }}
+                  >
+                    {result.message}
+                  </Typography>
+                </Paper>
+              </Box>
+            )}
+
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button variant="outlined" onClick={resetForm} sx={{ flex: 1 }}>
+                <TypedMessage message={messages.REGISTER_ANOTHER} />
+              </Button>
+            </Box>
+          </Box>
+        )}
+      </Box>
+    </Drawer>
+  );
+};
+
+export default UserRegistrationDrawer;

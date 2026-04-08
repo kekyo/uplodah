@@ -1,4 +1,4 @@
-// uplodah - Universal file upload/download server.
+// uplodah - Simple and modern universal file upload/download server.
 // Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
 // Under MIT.
 // https://github.com/kekyo/uplodah
@@ -7,19 +7,30 @@ import { defineConfig } from 'vite';
 import { resolve } from 'path';
 import { fileURLToPath } from 'url';
 import react from '@vitejs/plugin-react';
-import dts from 'vite-plugin-dts';
+import dts from 'unplugin-dts/vite';
 import screwUp from 'screw-up';
 import prettierMax from 'prettier-max';
+import typedMessage from 'typed-message/vite';
 import { fastifyHost } from './src/plugins/vite-plugin-fastify';
 import { ServerConfig } from './src/types';
 
+// Development server configuration
 const devConfig: ServerConfig = {
   port: 5968,
   configDir: './dev',
   storageDir: './dev/storage',
   realm: 'uplodah dev',
-  logLevel: 'debug',
+  trustedProxies: [],
+  authMode: 'none',
+  storage: {
+    '/': {},
+    '/tmp': {
+      expireSeconds: 60,
+    },
+  },
 };
+
+////////////////////////////////////////////////////////////////////
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
@@ -28,50 +39,82 @@ export default defineConfig(({ mode, command }) => {
   const isBuild = command === 'build';
   const buildTarget = process.env.BUILD_TARGET || 'server';
 
+  // For development mode, use UI as root
   if (isDev && !isBuild) {
     return {
       root: 'src/ui',
-      base: './',
+      base: './', // Use relative paths for assets
       plugins: [
         react(),
-        prettierMax(),
-        screwUp({
-          outputMetadataFile: true,
+        typedMessage({
+          localeDir: resolve(__dirname, 'src/ui/public/locale'),
+          outputPath: resolve(__dirname, 'src/generated/messages.ts'),
+          fallbackPriorityOrder: ['ja', 'en', 'fallback'],
         }),
+        prettierMax({
+          failOnError: true,
+        }),
+        // Add Fastify plugin for development
         fastifyHost(devConfig),
       ],
       server: {
         port: 3000,
+        // No proxy needed as Fastify runs in same process
       },
       build: {
         outDir: '../../dist/ui',
         emptyOutDir: true,
         chunkSizeWarningLimit: 10000,
+        rollupOptions: {
+          input: {
+            index: resolve(__dirname, 'src/ui/index.html'),
+            login: resolve(__dirname, 'src/ui/login.html'),
+          },
+        },
       },
     };
   }
 
+  // For build mode, handle server or UI based on BUILD_TARGET
   if (isBuild && buildTarget === 'ui') {
+    // UI build mode
     return {
       root: 'src/ui',
-      base: './',
+      base: './', // Use relative paths for assets
       plugins: [
         react(),
+        typedMessage({
+          localeDir: resolve(__dirname, 'src/ui/public/locale'),
+          outputPath: resolve(__dirname, 'src/generated/messages.ts'),
+          fallbackPriorityOrder: ['ja', 'en', 'fallback'],
+        }),
         prettierMax({
           failOnError: true,
         }),
       ],
       build: {
         outDir: '../../dist/ui',
-        emptyOutDir: false,
+        emptyOutDir: false, // Don't clean server build files
         chunkSizeWarningLimit: 10000,
+        rollupOptions: {
+          input: {
+            index: resolve(__dirname, 'src/ui/index.html'),
+            login: resolve(__dirname, 'src/ui/login.html'),
+          },
+        },
       },
     };
   }
 
+  // Server build mode (default)
   return {
     plugins: [
       react(),
+      typedMessage({
+        localeDir: resolve(__dirname, 'src/ui/public/locale'),
+        outputPath: resolve(__dirname, 'src/generated/messages.ts'),
+        fallbackPriorityOrder: ['ja', 'en', 'fallback'],
+      }),
       dts({
         insertTypesEntry: true,
         exclude: ['src/ui/**/*', 'src/plugins/**/*'],
@@ -79,11 +122,14 @@ export default defineConfig(({ mode, command }) => {
       screwUp({
         outputMetadataFile: true,
       }),
-      prettierMax(),
+      prettierMax({
+        failOnError: true,
+      }),
     ],
     build: {
-      emptyOutDir: true,
+      emptyOutDir: true, // Clean on first build
       chunkSizeWarningLimit: 10000,
+      // Build server code as library
       lib: {
         entry: {
           index: resolve(__dirname, 'src/index.ts'),
@@ -94,21 +140,37 @@ export default defineConfig(({ mode, command }) => {
           `${entryName}.${format === 'es' ? 'mjs' : 'cjs'}`,
         formats: ['es', 'cjs'],
       },
-      rollupOptions: {
+      rolldownOptions: {
         external: [
           'commander',
           'fs/promises',
           'fs',
+          'os',
+          'crypto',
+          'zlib',
           'path',
           'url',
-          'crypto',
+          'xml2js',
+          'events',
           'stream',
           'buffer',
-          'http',
+          'timers',
+          'util',
+          'adm-zip',
+          'async-primitives',
           'dayjs',
           'fastify',
+          '@fastify/passport',
+          '@fastify/secure-session',
           '@fastify/static',
           '@fastify/send',
+          'passport-local',
+          'passport-http',
+          'readline',
+          'glob',
+          'path-scurry',
+          'minipass',
+          // React-related externals for server build
           'react',
           'react-dom',
           '@mui/material',

@@ -1,40 +1,42 @@
 {
   "name": "uplodah",
-  "description": "Universal file upload/download server.",
+  "description": "Simple and modern universal file upload/download server",
   "version": "0.1.0",
   "keywords": [
     "upload",
     "download",
-    "file",
     "server",
-    "typescript",
-    "react",
-    "fastify"
+    "universal",
+    "cli",
+    "ui"
   ],
-  "author": "Kouji Matsui",
+  "author": "Kouji Matsui (@kekyo@mi.kekyo.net)",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/kekyo/uplodah"
+    "url": "https://github.com/kekyo/uplodah.git"
   },
-  "homepage": "https://github.com/kekyo/uplodah",
+  "homepage": "https://github.com/kekyo/uplodah#readme",
+  "readme": "README_pack.md",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
-  "types": "./dist/index.d.ts",
+  "types": "./dist/src/index.d.ts",
   "bin": {
     "uplodah": "./dist/cli.mjs"
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./dist/src/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.cjs"
     }
   },
   "files": [
     "dist",
-    "LICENSE"
+    "LICENSE",
+    "./images/uplodah-120.png",
+    "./images/browse.png"
   ],
   "scripts": {
     "metadata": "screw-up metadata",
@@ -43,34 +45,54 @@
     "build:ui": "npm run metadata && BUILD_TARGET=ui vite build",
     "dev": "npm run metadata && vite dev",
     "test": "npm run build && vitest run",
+    "init": "npm run build && node dist/cli.mjs -c ./dev/config.json -d ./dev/storage --auth-init",
     "start": "npm run build && node dist/cli.mjs -c ./dev/config.json -d ./dev/storage",
+    "dump": "npm run build && screw-up dump",
     "pack": "npm run build && screw-up pack --pack-destination artifacts/"
   },
   "dependencies": {
     "@emotion/react": ">=11.14.0",
-    "@emotion/styled": ">=11.14.1",
-    "@fastify/static": ">=7.0.4",
-    "@mui/icons-material": ">=7.3.1",
-    "@mui/material": ">=7.3.1",
+    "@emotion/styled": ">=11.14.0",
+    "@fastify/passport": ">=2.4.0",
+    "@fastify/secure-session": ">=7.5.0",
+    "@fastify/static": ">=7.0.0",
+    "@mui/icons-material": ">=7.3.0",
+    "@mui/material": ">=7.3.0",
+    "adm-zip": ">=0.5.10",
     "async-primitives": ">=1.7.0",
     "commander": ">=11.0.0",
     "dayjs": ">=1.11.0",
     "fastify": ">=4.28.1",
-    "json5": ">=2.2.0",
-    "react": ">=19.1.1",
-    "react-dom": ">=19.1.1"
+    "json5": "^2.2.3",
+    "notistack": ">=3.0.0",
+    "passport-http": ">=0.3.0",
+    "passport-local": ">=1.0.0",
+    "react": ">=18.1.0",
+    "react-dom": ">=18.1.0",
+    "react-infinite-scroll-component": "^6.1.0",
+    "typed-message": ">=1.20.0",
+    "xml2js": ">=0.6.0",
+    "zxcvbn": ">=4.4.0"
   },
   "devDependencies": {
+    "@types/adm-zip": ">=0.5.0",
     "@types/node": ">=20.0.0",
-    "@types/react": ">=19.1.10",
-    "@types/react-dom": ">=19.1.7",
-    "@vitejs/plugin-react": ">=5.0.1",
+    "@types/passport-http": ">=0.3.9",
+    "@types/passport-local": ">=1.0.38",
+    "@types/react": ">=18.1.0",
+    "@types/react-dom": ">=18.1.0",
+    "@types/xml2js": ">=0.4.0",
+    "@types/zxcvbn": ">=4.4.0",
+    "@vitejs/plugin-react": ">=5.0.0",
     "prettier-max": ">=1.14.0",
-    "screw-up": ">=1.30.0",
+    "screw-up": ">=1.32.0",
     "typescript": ">=5.0.0",
+    "unplugin-dts": ">=1.0.0-beta.6",
     "vite": ">=5.0.0",
-    "vite-plugin-dts": ">=3.0.0",
     "vitest": ">=1.0.0"
+  },
+  "overrides": {
+    "sodium-native": "4.3.3"
   },
   "engines": {
     "node": ">=20.19.0"

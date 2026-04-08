@@ -1,6 +1,6 @@
 # uplodah
 
-Simple and modern universal file upload/download server implementation
+Simple and modern universal file upload/download server.
 
 ![uplodah](./images/uplodah-120.png)
 
@@ -15,8 +15,6 @@ Simple and modern universal file upload/download server implementation
 
 > Please note that this English version of the document was machine-translated and then partially edited, so it may contain inaccuracies.
 > We welcome pull requests to correct any errors in the text.
-
-(Document still under construction!)
 
 ## What Is This?
 
@@ -62,6 +60,7 @@ It also provides a modern browser-based UI:
 - Virtual storage rules:
   - Per-directory read-only control
   - Per-directory expiration rules
+- Authentication: protect uploads only or the whole server with UI login, user roles, and API passwords
 - Supports reverse proxies and subpath hosting
 - Docker image available
 - Health check endpoint at `/health`
@@ -269,42 +268,31 @@ Relative paths provided via CLI options or environment variables are resolved fr
 As described above, `uplodah` does not use any special database.
 It only places directories and files under the storage directory.
 
-Each uploaded file has a neighboring `metadata.json`.
-In the current version, that file always contains `"{}"` and does not hold additional details yet, but note that the upload is not recognized unless that file exists.
+Each stored upload is recognized only when all of the following are true:
 
-When `storage` rules are not used, a history directory is created for each file name:
+- The version directory name can be parsed as an `uploadId`
+- `metadata.json` exists and contains valid JSON
+- A payload file exists in the same directory and its file name matches the parent file-group directory name
 
-```text
-storage/
-└── report.txt/
-    ├── 20260406_203040_123/
-    │   ├── metadata.json
-    │   └── report.txt
-    └── 20260406_204512_918/
-        ├── metadata.json
-        └── report.txt
-```
-
-When `storage` rules are configured, the layout switches to an internally managed tree:
+The storage tree mirrors the public path directly under the storage root:
 
 ```text
 storage/
-└── .uplodah/
-    └── groups/
-        ├── root/
-        │   └── report.txt/
-        │       └── 20260406_203040_123/
-        │           ├── metadata.json
-        │           └── report.txt
-        └── tree/
-            └── dropbox/
-                └── report.txt/
-                    └── 20260406_204512_918/
-                        ├── metadata.json
-                        └── report.txt
+├── report.txt/
+│   └── 20260406_203040_123/
+│       ├── metadata.json
+│       └── report.txt
+└── bropdox/
+    └── report.txt/
+        └── 20260406_204512_918/
+            ├── metadata.json
+            └── report.txt
 ```
 
-`uploadId` values are generated from timestamps in `YYYYMMDD_HHmmss_SSS` format.
+When `storage` rules are enabled, the directory segments from the public path are simply inserted before the file-group directory.
+No separate internal tree is used.
+
+`uploadId` values are generated from timestamps in `YYYYMMDD_HHmmss_fff` format.
 If multiple uploads collide within the same millisecond, a sequence suffix is appended.
 
 ### Virtual Directory Rules
@@ -323,7 +311,7 @@ Here is an example `storage` section in `config.json`:
   "port": 5968,
   "storage": {
     "/": {},
-    "/foobar": {
+    "/bropdox": {
       "expireSeconds": 86400
     },
     "/archive": {
@@ -337,7 +325,7 @@ Here is an example `storage` section in `config.json`:
 In this example:
 
 - `/` accepts normal uploads
-- Uploads under `/foobar` expire automatically after 24 hours
+- Uploads under `/bropdox` expire automatically after 24 hours
 - `/archive` is read-only
 - `/archive/incoming` is more specific than `/archive`, so uploads are allowed there again
 
@@ -362,8 +350,9 @@ To restore, extract the archive and start `uplodah` again with the same `storage
 
 If the directory structure is damaged, you can rebuild it manually as long as you preserve the required layout:
 
-1. Create a directory in the form `<file-name>/<YYYYMMDD_HHmmss_fff[_num]>/`.
-2. Place both `metadata.json` and the payload file into that directory.
+1. Create a directory in the form `<public-path>/<YYYYMMDD_HHmmss_fff[_num]>/`.
+2. Place a valid JSON `metadata.json` into that directory.
+3. Place the payload file into the same directory, and name it exactly the same as the parent file-group directory.
 
 If you modify the storage directory directly while `uplodah` is running, those changes are not reflected immediately.
 Restart `uplodah` afterward.
@@ -405,13 +394,18 @@ If not specified, `uplodah` looks for `./config.json` in the current directory.
   "port": 5968,
   "baseUrl": "https://files.example.com/uplodah",
   "storageDir": "./storage",
+  "usersFile": "./users.json",
   "realm": "Awesome uplodah",
   "logLevel": "info",
   "trustedProxies": ["127.0.0.1", "::1"],
+  "authMode": "none",
+  "sessionSecret": "<your-secret-here>",
+  "passwordMinScore": 2,
+  "passwordStrengthCheck": true,
   "maxUploadSizeMb": 500,
   "storage": {
     "/": {},
-    "/dropbox": {
+    "/bropdox": {
       "expireSeconds": 86400
     },
     "/archive": {
@@ -424,23 +418,153 @@ If not specified, `uplodah` looks for `./config.json` in the current directory.
 All fields are optional.
 Only specify the ones you want to override.
 
-Relative `storageDir` paths are resolved from the directory containing `config.json`.
+Relative `storageDir` and `usersFile` paths are resolved from the directory containing `config.json`.
 
 ### Configuration Reference Table
 
 All settings are resolved with the priority **CLI > environment variable > config.json > default**.
 
-| CLI option                    | Environment variable         | `config.json` key | Description                           | Valid values                               | Default             |
-| :---------------------------- | :--------------------------- | :---------------- | :------------------------------------ | :----------------------------------------- | :------------------ |
-| `-p, --port <port>`           | `UPLODAH_PORT`               | `port`            | HTTP server listening port            | 1-65535                                    | `5968`              |
-| `-b, --base-url <url>`        | `UPLODAH_BASE_URL`           | `baseUrl`         | Fixed external base URL               | valid URL                                  | auto-detected       |
-| `-d, --storage-dir <dir>`     | `UPLODAH_STORAGE_DIR`        | `storageDir`      | Storage root directory                | valid path                                 | `./storage`         |
-| `-c, --config-file <path>`    | `UPLODAH_CONFIG_FILE`        | N/A               | Path to the configuration file        | valid path                                 | `./config.json`     |
-| `-r, --realm <realm>`         | `UPLODAH_REALM`              | `realm`           | UI title and server label             | string                                     | `uplodah [version]` |
-| `-l, --log-level <level>`     | `UPLODAH_LOG_LEVEL`          | `logLevel`        | Log verbosity                         | `debug`, `info`, `warn`, `error`, `ignore` | `info`              |
-| `--trusted-proxies <ips>`     | `UPLODAH_TRUSTED_PROXIES`    | `trustedProxies`  | Comma-separated trusted proxy IP list | list of IP addresses                       | none                |
-| `--max-upload-size-mb <size>` | `UPLODAH_MAX_UPLOAD_SIZE_MB` | `maxUploadSizeMb` | Maximum upload size in MB             | 1-10000                                    | `100`               |
-| N/A                           | N/A                          | `storage`         | Per-virtual-directory storage policy  | object                                     | unset               |
+| CLI option                    | Environment variable                 | `config.json` key       | Description                                              | Valid values                               | Default             |
+| :---------------------------- | :----------------------------------- | :---------------------- | :------------------------------------------------------- | :----------------------------------------- | :------------------ |
+| `-p, --port <port>`           | `UPLODAH_PORT`                       | `port`                  | HTTP server listening port                               | 1-65535                                    | `5968`              |
+| `-b, --base-url <url>`        | `UPLODAH_BASE_URL`                   | `baseUrl`               | Fixed external base URL                                  | valid URL                                  | auto-detected       |
+| `-d, --storage-dir <dir>`     | `UPLODAH_STORAGE_DIR`                | `storageDir`            | Storage root directory                                   | valid path                                 | `./storage`         |
+| `-c, --config-file <path>`    | `UPLODAH_CONFIG_FILE`                | N/A                     | Path to the configuration file                           | valid path                                 | `./config.json`     |
+| `-u, --users-file <path>`     | `UPLODAH_USERS_FILE`                 | `usersFile`             | Path to the users database file                          | valid path                                 | `./users.json`      |
+| `-r, --realm <realm>`         | `UPLODAH_REALM`                      | `realm`                 | UI title and server label                                | string                                     | `uplodah [version]` |
+| `-l, --log-level <level>`     | `UPLODAH_LOG_LEVEL`                  | `logLevel`              | Log verbosity                                            | `debug`, `info`, `warn`, `error`, `ignore` | `info`              |
+| `--trusted-proxies <ips>`     | `UPLODAH_TRUSTED_PROXIES`            | `trustedProxies`        | Comma-separated trusted proxy IP list                    | list of IP addresses                       | none                |
+| `--auth-mode <mode>`          | `UPLODAH_AUTH_MODE`                  | `authMode`              | Authentication mode                                      | `none`, `publish`, `full`                  | `none`              |
+| N/A                           | `UPLODAH_SESSION_SECRET`             | `sessionSecret`         | Secret used for session cookies                          | string                                     | auto-generated      |
+| N/A                           | `UPLODAH_PASSWORD_MIN_SCORE`         | `passwordMinScore`      | Minimum password strength score                          | 0-4                                        | `2`                 |
+| N/A                           | `UPLODAH_PASSWORD_STRENGTH_CHECK`    | `passwordStrengthCheck` | Enable password strength checking                        | `true`, `false`                            | `true`              |
+| `--max-upload-size-mb <size>` | `UPLODAH_MAX_UPLOAD_SIZE_MB`         | `maxUploadSizeMb`       | Maximum upload size in MB                                | 1-10000                                    | `100`               |
+| N/A                           | N/A                                  | `storage`               | Per-virtual-directory storage policy                     | object                                     | unset               |
+| N/A                           | `UPLODAH_AUTH_FAILURE_DELAY_ENABLED` | N/A                     | Enable progressive delays for failed auth attempts       | `true`, `false`                            | `true`              |
+| N/A                           | `UPLODAH_AUTH_FAILURE_MAX_DELAY`     | N/A                     | Maximum delay for failed auth attempts (ms)              | number                                     | `10000`             |
+| `--auth-init`                 | N/A                                  | N/A                     | Initialize authentication with an interactive admin user | flag                                       | N/A                 |
+
+---
+
+## Authentication
+
+`uplodah` also supports authentication.
+
+| Authentication Mode | Details                                                                               | Auth Initialization |
+| :------------------ | :------------------------------------------------------------------------------------ | :------------------ |
+| `none`              | Default. No authentication required                                                   | Not required        |
+| `publish`           | Authentication required for uploads and admin UI. Listing and downloads remain public | Required            |
+| `full`              | Authentication required for all operations (must login first)                         | Required            |
+
+To enable authentication on `uplodah`, first register an initial user using the `--auth-init` option.
+
+### Initialize
+
+Create an initial admin user interactively:
+
+```bash
+uplodah --auth-init
+```
+
+This command will:
+
+1. Prompt for admin username
+2. Prompt for password (with strength checking, masked input)
+3. Create `users.json`
+4. Exit after initialization (server does not start)
+
+When enabling authentication with the Docker image, run this option against the same mounted config/data directory so that `users.json` is created in persistent storage.
+
+### Example session
+
+```
+Initializing authentication...
+Enter admin username: admin
+Enter password: ********
+Password strength: Good
+Confirm password: ********
+Creating admin user...
+
+============================================================
+Admin user created successfully!
+============================================================
+Username: admin
+Role: admin
+============================================================
+
+Note: You need to generate an API password for API access.
+You can do this through the web UI after logging in with your username and password.
+============================================================
+```
+
+### User Management
+
+Users added with `--auth-init` automatically become administrator users.
+Administrator users can add or remove other users through the UI, and can reset user passwords.
+
+Available roles are:
+
+- `read`: browse, list, and download files
+- `publish`: same as `read`, plus upload files
+- `admin`: same as `publish`, plus user management
+
+Administrator users can also generate API passwords, but it is usually better to separate day-to-day upload accounts from the admin account.
+
+### Using API passwords
+
+`uplodah` distinguishes between the password used to log in to the UI and the password used by API clients.
+API clients use an "API password" with HTTP Basic authentication.
+
+Log in through the browser UI first, then open the API password screen from the user menu and create one or more labeled API passwords.
+The plaintext API password is shown only once, so store it securely.
+
+Examples:
+
+```bash
+# Upload with API password
+curl -X POST http://localhost:5968/api/upload/report.txt \
+  -u publisher:xxxxxxxxxxxxxxxxxxxxxx \
+  -H "Content-Type: application/octet-stream" \
+  --data-binary @./report.txt
+```
+
+```bash
+# List files with API password (required in authMode=full)
+curl "http://localhost:5968/api/files?skip=0&take=20" \
+  -u reader:xxxxxxxxxxxxxxxxxxxxxx
+```
+
+```bash
+# Download the latest file version with API password (required in authMode=full)
+curl -L "http://localhost:5968/api/files/report.txt" \
+  -u reader:xxxxxxxxxxxxxxxxxxxxxx \
+  -o ./report.txt
+```
+
+In `publish` mode, HTTP Basic authentication is required only for upload APIs.
+In `full` mode, provide Basic authentication for all API routes, while the browser UI uses the session created after login.
+
+### Password strength requirements
+
+`uplodah` uses the `zxcvbn` library to enforce strong password requirements:
+
+- Evaluates password strength on a scale of 0-4 (Weak to Very Strong)
+- Default minimum score: 2 (Good)
+- Checks against common passwords, dictionary words, and patterns
+- Provides feedback during password creation
+
+Configure password requirements in `config.json`:
+
+```json
+{
+  "passwordMinScore": 2, // 0-4, default: 2 (Good)
+  "passwordStrengthCheck": true // default: true
+}
+```
+
+`uplodah` stores both login passwords and API passwords as salted hashes, so plaintext passwords are not saved on disk.
+However, if you do not use HTTPS (TLS), the `Authorization` header contains the plaintext API password, which makes it vulnerable to sniffing.
+If the server is exposed beyond a trusted local network, protect communications with HTTPS.
 
 ---
 
@@ -602,7 +726,7 @@ Below is an example of `config.json`:
   "maxUploadSizeMb": 500,
   "storage": {
     "/": {},
-    "/dropbox": {
+    "/bropdox": {
       "expireSeconds": 86400
     },
     "/archive": {
@@ -727,11 +851,6 @@ Without QEMU, you can only build for your native architecture.
 
 ## Notes
 
-### Authentication
-
-The current version of `uplodah` does not implement authentication.
-If you expose it on a public network, add protection such as Basic authentication, OIDC, or IP restrictions on the reverse proxy or gateway side.
-
 ### Health Check
 
 `/health` returns a response like this:
@@ -742,10 +861,6 @@ If you expose it on a public network, add protection such as Basic authenticatio
   "version": "0.1.0"
 }
 ```
-
-### UI Availability
-
-If the UI build is not found in the runtime environment, the root Web UI at `/` is disabled, but the upload, listing, and download API routes remain available.
 
 ## Other
 
