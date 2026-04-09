@@ -1,71 +1,60 @@
-// uplodah - Universal file upload/download server.
+// uplodah - Simple and modern universal file upload/download server.
 // Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
 // Under MIT.
 // https://github.com/kekyo/uplodah
 
 import { Logger } from '../types';
 
+/**
+ * Generic request interface for URL resolution
+ */
 interface GenericRequest {
   protocol: string;
   ip?: string;
   socket: {
     remoteAddress?: string;
   };
-  headers: {
-    [key: string]: string | string[] | undefined;
-  };
+  headers: { [key: string]: string | string[] | undefined };
 }
 
 /**
- * Configuration for URL resolution.
+ * Configuration for URL resolver
  */
 export interface UrlResolverConfig {
-  /**
-   * Fixed external base URL.
-   */
   baseUrl?: string;
-  /**
-   * Trusted reverse proxy IP addresses.
-   */
   trustedProxies?: string[];
 }
 
 /**
- * Resolved request URL information.
+ * Result of URL resolution
  */
 export interface ResolvedUrl {
-  /**
-   * Base URL without a trailing slash.
-   */
   baseUrl: string;
-  /**
-   * Whether the base URL is fixed by configuration.
-   */
   isFixed: boolean;
 }
 
 /**
- * Extracts the path segment from a configured base URL.
- * @param baseUrl Configured base URL.
- * @returns Path prefix without a trailing slash.
+ * Extracts path prefix from a base URL
+ * @param baseUrl - Base URL to extract path from
+ * @returns Path prefix (e.g., "/foobar") or empty string
  */
 export const extractPathFromBaseUrl = (baseUrl: string | undefined): string => {
-  if (!baseUrl) {
-    return '';
-  }
+  if (!baseUrl) return '';
 
   try {
-    return new URL(baseUrl).pathname.replace(/\/$/, '');
+    const url = new URL(baseUrl);
+    // Remove trailing slash and return path
+    return url.pathname.replace(/\/$/, '');
   } catch {
     return '';
   }
 };
 
 /**
- * Creates a URL resolver that understands proxy headers and base path prefixes.
- * @param logger Logger used for diagnostic output.
- * @param config Resolver configuration.
- * @returns URL resolver object.
+ * Creates a URL resolver for handling dynamic/proxy-aware URL generation
+ * @param logger - Logger
+ * @param config - URL resolver configuration
+ * @returns URL resolver instance
  */
 export const createUrlResolver = (
   logger: Logger,
@@ -73,85 +62,101 @@ export const createUrlResolver = (
 ) => {
   const { baseUrl: fixedBaseUrl, trustedProxies = [] } = config;
 
-  const isRequestFromTrustedProxy = (request: GenericRequest): boolean => {
+  /**
+   * Checks if a request comes from a trusted proxy
+   * @param req - Generic request object
+   * @returns True if from trusted proxy, false otherwise
+   */
+  const isRequestFromTrustedProxy = (req: GenericRequest): boolean => {
     if (trustedProxies.length === 0) {
-      logger.debug('resolveUrl: no trustedProxies configured');
+      logger.debug(`resolveUrl: no trustedProxies`);
       return true;
     }
 
-    const clientIp = request.ip || request.socket.remoteAddress;
-    const forwardedFor = request.headers['x-forwarded-for'] as string;
-    const sourceIps = [clientIp];
+    const clientIp = req.ip || req.socket.remoteAddress;
+    const forwardedFor = req.headers['x-forwarded-for'] as string;
 
+    logger.debug(`resolveUrl: clientIp: ${clientIp}`);
+    logger.debug(`resolveUrl: x-forwarded-for: ${forwardedFor}`);
+
+    const sourceIps = [clientIp];
     if (forwardedFor) {
       sourceIps.push(...forwardedFor.split(',').map((ip) => ip.trim()));
     }
 
-    const isTrusted = sourceIps.some((ip) => trustedProxies.includes(ip ?? ''));
-    logger.debug(`resolveUrl: trusted proxy=${isTrusted}`);
-    return isTrusted;
+    const result = sourceIps.some((ip) => trustedProxies.includes(ip || ''));
+    logger.debug(`resolveUrl: trustedProxies: ${result}`);
+
+    return result;
   };
 
+  /**
+   * Parses the Forwarded header according to RFC 7239
+   * @param forwarded - Forwarded header value
+   * @returns Parsed forwarded information
+   */
   const parseForwardedHeader = (forwarded: string): Record<string, string> => {
     const parsed: Record<string, string> = {};
 
-    for (const pair of forwarded.split(';').map((value) => value.trim())) {
-      const [key, value] = pair.split('=').map((entry) => entry.trim());
+    const pairs = forwarded.split(';').map((s) => s.trim());
+    for (const pair of pairs) {
+      const [key, value] = pair.split('=').map((s) => s.trim());
       if (key && value) {
-        parsed[key.toLowerCase()] = value.replaceAll('"', '');
+        parsed[key.toLowerCase()] = value.replace(/"/g, '');
       }
     }
 
     return parsed;
   };
 
-  const resolveUrl = (request: GenericRequest): ResolvedUrl => {
+  /**
+   * Resolves the base URL for API endpoints from request headers
+   * @param req - Generic request object
+   * @returns Resolved URL information
+   */
+  const resolveUrl = (req: GenericRequest): ResolvedUrl => {
     if (fixedBaseUrl) {
-      const normalizedBaseUrl = fixedBaseUrl.replace(/\/$/, '');
-      logger.debug(`resolveUrl: fixed=${normalizedBaseUrl}`);
+      logger.debug(`resolveUrl: resolved: ${fixedBaseUrl} (fixed)`);
       return {
-        baseUrl: normalizedBaseUrl,
+        baseUrl: fixedBaseUrl.replace(/\/$/, ''),
         isFixed: true,
       };
     }
 
-    let protocol = request.protocol;
-    let host = (request.headers.host as string) || 'localhost';
+    let protocol = req.protocol;
+    let host = (req.headers.host as string) || 'localhost';
+    logger.debug(`resolveUrl: protocol: ${protocol}`);
+    logger.debug(`resolveUrl: host: ${host}`);
+
     let port: string | undefined;
 
-    if (isRequestFromTrustedProxy(request)) {
-      const forwarded = request.headers['forwarded'] as string;
+    if (isRequestFromTrustedProxy(req)) {
+      const forwardedProto = req.headers['x-forwarded-proto'] as string;
+      const forwardedHost = req.headers['x-forwarded-host'] as string;
+      const forwardedPort = req.headers['x-forwarded-port'] as string;
+      const forwarded = req.headers['forwarded'] as string;
+
+      logger.debug(`resolveUrl: x-forwarded-proto: ${forwardedProto}`);
+      logger.debug(`resolveUrl: x-forwarded-host: ${forwardedHost}`);
+      logger.debug(`resolveUrl: x-forwarded-port: ${forwardedPort}`);
+      logger.debug(`resolveUrl: forwarded: ${forwarded}`);
+
       if (forwarded) {
         const parsed = parseForwardedHeader(forwarded);
-        if (parsed['proto']) {
-          protocol = parsed['proto'];
-        }
-        if (parsed['host']) {
-          host = parsed['host'];
-        }
-        if (parsed['port']) {
-          port = parsed['port'];
-        }
+        if (parsed.proto) protocol = parsed.proto;
+        if (parsed.host) host = parsed.host;
+        if (parsed.port) port = parsed.port;
       } else {
-        const forwardedProto = request.headers['x-forwarded-proto'] as string;
-        const forwardedHost = request.headers['x-forwarded-host'] as string;
-        const forwardedPort = request.headers['x-forwarded-port'] as string;
-
-        if (forwardedProto) {
-          protocol = forwardedProto;
-        }
-        if (forwardedHost) {
-          host = forwardedHost;
-        }
-        if (forwardedPort) {
-          port = forwardedPort;
-        }
+        if (forwardedProto) protocol = forwardedProto;
+        if (forwardedHost) host = forwardedHost;
+        if (forwardedPort) port = forwardedPort;
       }
     }
 
     const hostWithPort = port && !host.includes(':') ? `${host}:${port}` : host;
+
     const baseUrl = `${protocol}://${hostWithPort}`;
-    logger.debug(`resolveUrl: resolved=${baseUrl}`);
+    logger.debug(`resolveUrl: resolved: ${baseUrl}`);
 
     return {
       baseUrl,
@@ -159,21 +164,29 @@ export const createUrlResolver = (
     };
   };
 
-  const extractPathPrefix = (request: GenericRequest): string => {
+  /**
+   * Extracts path prefix from request headers or configuration
+   * @param req - Generic request object
+   * @returns Path prefix or empty string
+   */
+  const extractPathPrefix = (req: GenericRequest): string => {
+    // First, check if we have a fixed baseUrl with a path
     if (fixedBaseUrl) {
       const pathPrefix = extractPathFromBaseUrl(fixedBaseUrl);
       if (pathPrefix) {
-        logger.debug(`extractPathPrefix: fixed=${pathPrefix}`);
+        logger.debug(`extractPathPrefix: from baseUrl: ${pathPrefix}`);
         return pathPrefix;
       }
     }
 
-    if (isRequestFromTrustedProxy(request)) {
-      const forwardedPath = request.headers['x-forwarded-path'] as string;
+    // Then check x-forwarded-path header if from trusted proxy
+    if (isRequestFromTrustedProxy(req)) {
+      const forwardedPath = req.headers['x-forwarded-path'] as string;
       if (forwardedPath) {
-        const normalizedPath = forwardedPath.replace(/\/$/, '');
-        logger.debug(`extractPathPrefix: forwarded=${normalizedPath}`);
-        return normalizedPath;
+        // Remove trailing slash
+        const pathPrefix = forwardedPath.replace(/\/$/, '');
+        logger.debug(`extractPathPrefix: from x-forwarded-path: ${pathPrefix}`);
+        return pathPrefix;
       }
     }
 
@@ -183,29 +196,28 @@ export const createUrlResolver = (
   return {
     resolveUrl,
     extractPathPrefix,
-    isFixedUrl: (): boolean => fixedBaseUrl !== undefined,
+    isFixedUrl: (): boolean => !!fixedBaseUrl,
   };
 };
 
 /**
- * Gets the fixed base URL from the environment.
- * @returns Base URL from `UPLODAH_BASE_URL`.
+ * Gets base URL from environment variable
+ * @returns Base URL from UPLODAH_BASE_URL environment variable
  */
-export const getBaseUrlFromEnv = (): string | undefined =>
-  process.env['UPLODAH_BASE_URL'];
+export const getBaseUrlFromEnv = (): string | undefined => {
+  return process.env.UPLODAH_BASE_URL;
+};
 
 /**
- * Gets the trusted proxies list from the environment.
- * @returns Trusted proxy IPs from `UPLODAH_TRUSTED_PROXIES`.
+ * Gets trusted proxies list from environment variable
+ * @returns Array of trusted proxy IPs from UPLODAH_TRUSTED_PROXIES environment variable, or undefined if not set
  */
 export const getTrustedProxiesFromEnv = (): string[] | undefined => {
-  const value = process.env['UPLODAH_TRUSTED_PROXIES'];
-  if (!value) {
-    return undefined;
-  }
+  const proxies = process.env.UPLODAH_TRUSTED_PROXIES;
+  if (!proxies) return undefined;
 
-  return value
+  return proxies
     .split(',')
     .map((ip) => ip.trim())
-    .filter((ip) => ip.length > 0);
+    .filter(Boolean);
 };

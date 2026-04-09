@@ -1,194 +1,298 @@
-// uplodah - Universal file upload/download server.
+// uplodah - Simple and modern universal file upload/download server.
 // Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
 // Under MIT.
 // https://github.com/kekyo/uplodah
 
 import { readFile } from 'fs/promises';
-import { dirname, resolve } from 'path';
+import { join, resolve } from 'path';
 import JSON5 from 'json5';
-import { Logger, LogLevel, ServerConfig } from '../types';
-import { normalizeVirtualDirectoryPath } from './storagePolicy';
+import { LogLevel, AuthMode, Logger, StorageConfig } from '../types';
 
 /**
- * Configuration file structure for uplodah.
+ * Configuration file structure for uplodah
  */
-export type ConfigFile = ServerConfig;
+export interface ConfigFile {
+  port?: number;
+  baseUrl?: string;
+  storageDir?: string;
+  storage?: StorageConfig;
+  usersFile?: string;
+  realm?: string;
+  logLevel?: LogLevel;
+  trustedProxies?: string[];
+  authMode?: AuthMode;
+  sessionSecret?: string;
+  passwordMinScore?: number;
+  passwordStrengthCheck?: boolean;
+  maxUploadSizeMb?: number;
+}
 
+/**
+ * Validates and sanitizes a config file object
+ */
 const validateConfig = (
-  config: unknown,
+  config: any,
   configDir: string,
-  logger: Logger | undefined
+  logger?: Logger
 ): ConfigFile => {
-  if (!config || typeof config !== 'object' || Array.isArray(config)) {
-    logger?.warn('Config file root must be a JSON object');
-    return {};
-  }
-
-  const rawConfig = config as Record<string, unknown>;
   const validated: ConfigFile = {};
 
+  const validateStorage = (storage: any): StorageConfig | undefined => {
+    if (!storage || typeof storage !== 'object' || Array.isArray(storage)) {
+      logger?.warn('Invalid storage in config.json: expected an object');
+      return undefined;
+    }
+
+    const validatedStorage: StorageConfig = {};
+
+    for (const [directoryPath, rawRule] of Object.entries(storage)) {
+      if (typeof directoryPath !== 'string') {
+        logger?.warn('Invalid storage rule key in config.json');
+        continue;
+      }
+
+      if (!directoryPath.startsWith('/')) {
+        logger?.warn(
+          `Invalid storage directory "${directoryPath}" in config.json: must start with /`
+        );
+        continue;
+      }
+
+      if (directoryPath.includes('\\')) {
+        logger?.warn(
+          `Invalid storage directory "${directoryPath}" in config.json: backslashes are not allowed`
+        );
+        continue;
+      }
+
+      const segments = directoryPath.split('/').filter((segment) => segment);
+      if (segments.some((segment) => segment === '.' || segment === '..')) {
+        logger?.warn(
+          `Invalid storage directory "${directoryPath}" in config.json: . and .. are not allowed`
+        );
+        continue;
+      }
+
+      if (
+        rawRule === null ||
+        typeof rawRule !== 'object' ||
+        Array.isArray(rawRule)
+      ) {
+        logger?.warn(
+          `Invalid storage rule for "${directoryPath}" in config.json: expected an object`
+        );
+        continue;
+      }
+
+      const validatedRule: StorageConfig[string] = {};
+
+      if ('readonly' in rawRule) {
+        if (typeof rawRule.readonly === 'boolean') {
+          validatedRule.readonly = rawRule.readonly;
+        } else {
+          logger?.warn(
+            `Invalid readonly for "${directoryPath}" in config.json: expected boolean`
+          );
+        }
+      }
+
+      if ('expireSeconds' in rawRule) {
+        if (
+          typeof rawRule.expireSeconds === 'number' &&
+          Number.isFinite(rawRule.expireSeconds) &&
+          rawRule.expireSeconds >= 1
+        ) {
+          validatedRule.expireSeconds = rawRule.expireSeconds;
+        } else {
+          logger?.warn(
+            `Invalid expireSeconds for "${directoryPath}" in config.json: expected a positive number`
+          );
+        }
+      }
+
+      validatedStorage[directoryPath] = validatedRule;
+    }
+
+    return Object.keys(validatedStorage).length > 0 ? validatedStorage : {};
+  };
+
+  // Validate port
   if (
-    typeof rawConfig['port'] === 'number' &&
-    rawConfig['port'] > 0 &&
-    rawConfig['port'] <= 65535
+    typeof config.port === 'number' &&
+    config.port > 0 &&
+    config.port <= 65535
   ) {
-    validated.port = rawConfig['port'];
-  } else if (rawConfig['port'] !== undefined) {
-    logger?.warn(`Invalid port in config.json: ${String(rawConfig['port'])}`);
+    validated.port = config.port;
+  } else if (config.port !== undefined) {
+    logger?.warn(`Invalid port in config.json: ${config.port}`);
   }
 
-  if (typeof rawConfig['baseUrl'] === 'string') {
-    validated.baseUrl = rawConfig['baseUrl'].replace(/\/$/, '');
+  // Validate baseUrl
+  if (typeof config.baseUrl === 'string') {
+    validated.baseUrl = config.baseUrl;
   }
 
-  if (typeof rawConfig['storageDir'] === 'string') {
-    validated.storageDir = resolve(configDir, rawConfig['storageDir']);
+  // Validate storageDir and resolve relative paths from config directory
+  if (typeof config.storageDir === 'string') {
+    validated.storageDir = resolve(configDir, config.storageDir);
   }
 
-  if (typeof rawConfig['realm'] === 'string') {
-    validated.realm = rawConfig['realm'];
+  // Validate storage rules
+  if (config.storage !== undefined) {
+    const validatedStorage = validateStorage(config.storage);
+    if (validatedStorage !== undefined) {
+      validated.storage = validatedStorage;
+    }
   }
 
-  if (typeof rawConfig['logLevel'] === 'string') {
-    const validLogLevels: LogLevel[] = [
+  // Validate usersFile and resolve relative paths from config directory
+  if (typeof config.usersFile === 'string') {
+    // path.resolve handles both absolute and relative paths correctly
+    // If absolute: returns as-is, if relative: resolves from configDir
+    validated.usersFile = resolve(configDir, config.usersFile);
+  }
+
+  // Validate realm
+  if (typeof config.realm === 'string') {
+    validated.realm = config.realm;
+  }
+
+  // Validate logLevel
+  if (typeof config.logLevel === 'string') {
+    const validLevels: LogLevel[] = [
       'debug',
       'info',
       'warn',
       'error',
       'ignore',
     ];
-    if (validLogLevels.includes(rawConfig['logLevel'] as LogLevel)) {
-      validated.logLevel = rawConfig['logLevel'] as LogLevel;
+    if (validLevels.includes(config.logLevel as LogLevel)) {
+      validated.logLevel = config.logLevel as LogLevel;
     } else {
-      logger?.warn(
-        `Invalid logLevel in config.json: ${String(rawConfig['logLevel'])}`
-      );
+      logger?.warn(`Invalid logLevel in config.json: ${config.logLevel}`);
     }
   }
 
-  if (typeof rawConfig['maxUploadSizeMb'] === 'number') {
-    if (
-      rawConfig['maxUploadSizeMb'] >= 1 &&
-      rawConfig['maxUploadSizeMb'] <= 10000
-    ) {
-      validated.maxUploadSizeMb = rawConfig['maxUploadSizeMb'];
-    } else {
-      logger?.warn(
-        `Invalid maxUploadSizeMb in config.json: ${String(rawConfig['maxUploadSizeMb'])}`
-      );
-    }
-  }
-
-  if (Array.isArray(rawConfig['trustedProxies'])) {
-    const validTrustedProxies = rawConfig['trustedProxies'].filter(
-      (value): value is string => typeof value === 'string'
+  // Validate trustedProxies
+  if (Array.isArray(config.trustedProxies)) {
+    const validProxies = config.trustedProxies.filter(
+      (ip: any) => typeof ip === 'string'
     );
-    if (validTrustedProxies.length > 0) {
-      validated.trustedProxies = validTrustedProxies;
+    if (validProxies.length > 0) {
+      validated.trustedProxies = validProxies;
     }
-    if (validTrustedProxies.length !== rawConfig['trustedProxies'].length) {
-      logger?.warn('Some invalid trusted proxies in config.json were ignored');
+    if (validProxies.length !== config.trustedProxies.length) {
+      logger?.warn(
+        'Some invalid trusted proxy IPs in config.json were ignored'
+      );
     }
   }
 
-  if (
-    rawConfig['storage'] !== undefined &&
-    rawConfig['storage'] !== null &&
-    typeof rawConfig['storage'] === 'object' &&
-    !Array.isArray(rawConfig['storage'])
-  ) {
-    const validatedStorage: NonNullable<ConfigFile['storage']> = {};
-
-    for (const [directoryPath, value] of Object.entries(
-      rawConfig['storage'] as Record<string, unknown>
-    )) {
-      let normalizedDirectoryPath: string;
-      try {
-        normalizedDirectoryPath = normalizeVirtualDirectoryPath(directoryPath);
-      } catch (error) {
-        logger?.warn(
-          `Invalid storage directory in config.json: ${directoryPath}`
-        );
-        continue;
-      }
-
-      if (!value || typeof value !== 'object' || Array.isArray(value)) {
-        logger?.warn(
-          `Invalid storage entry in config.json: ${normalizedDirectoryPath}`
-        );
-        continue;
-      }
-
-      const rawEntry = value as Record<string, unknown>;
-      const validatedEntry: NonNullable<ConfigFile['storage']>[string] = {};
-
-      const rawExpireSeconds =
-        rawEntry['expire_seconds'] ?? rawEntry['expireSeconds'];
-      if (rawExpireSeconds !== undefined) {
-        if (
-          typeof rawExpireSeconds === 'number' &&
-          Number.isInteger(rawExpireSeconds) &&
-          rawExpireSeconds >= 0
-        ) {
-          validatedEntry.expireSeconds = rawExpireSeconds;
-        } else {
-          logger?.warn(
-            `Invalid expire_seconds in config.json for ${normalizedDirectoryPath}: ${String(rawExpireSeconds)}`
-          );
-        }
-      }
-
-      if (rawEntry['readonly'] !== undefined) {
-        if (typeof rawEntry['readonly'] === 'boolean') {
-          validatedEntry.readonly = rawEntry['readonly'];
-        } else {
-          logger?.warn(
-            `Invalid readonly in config.json for ${normalizedDirectoryPath}: ${String(rawEntry['readonly'])}`
-          );
-        }
-      }
-
-      validatedStorage[normalizedDirectoryPath] = validatedEntry;
+  // Validate authMode
+  if (typeof config.authMode === 'string') {
+    const validModes: AuthMode[] = ['none', 'publish', 'full'];
+    if (validModes.includes(config.authMode as AuthMode)) {
+      validated.authMode = config.authMode as AuthMode;
+    } else {
+      logger?.warn(`Invalid authMode in config.json: ${config.authMode}`);
     }
+  }
 
-    validated.storage = validatedStorage;
-  } else if (rawConfig['storage'] !== undefined) {
-    logger?.warn('storage in config.json must be an object');
+  // Validate sessionSecret
+  if (typeof config.sessionSecret === 'string') {
+    validated.sessionSecret = config.sessionSecret;
+    if (logger) {
+      logger.warn(
+        'Session secret found in config.json. Consider using environment variable UPLODAH_SESSION_SECRET instead for better security.'
+      );
+    }
+  }
+
+  // Validate passwordMinScore
+  if (
+    typeof config.passwordMinScore === 'number' &&
+    config.passwordMinScore >= 0 &&
+    config.passwordMinScore <= 4
+  ) {
+    validated.passwordMinScore = config.passwordMinScore;
+  } else if (config.passwordMinScore !== undefined) {
+    logger?.warn(
+      `Invalid passwordMinScore in config.json: ${config.passwordMinScore}. Must be 0-4.`
+    );
+  }
+
+  // Validate passwordStrengthCheck
+  if (typeof config.passwordStrengthCheck === 'boolean') {
+    validated.passwordStrengthCheck = config.passwordStrengthCheck;
+  }
+
+  // Validate maxUploadSizeMb
+  if (
+    typeof config.maxUploadSizeMb === 'number' &&
+    config.maxUploadSizeMb >= 1 &&
+    config.maxUploadSizeMb <= 10000
+  ) {
+    validated.maxUploadSizeMb = config.maxUploadSizeMb;
+  } else if (config.maxUploadSizeMb !== undefined) {
+    logger?.warn(
+      `Invalid maxUploadSizeMb in config.json: ${config.maxUploadSizeMb}. Must be between 1 and 10000 MB.`
+    );
   }
 
   return validated;
 };
 
 /**
- * Loads server configuration from a JSON5 file.
- * @param configPath Path to the config file.
- * @param logger Logger used for diagnostic output.
- * @returns Parsed, validated, and normalized configuration.
+ * Loads configuration from a config.json file at the specified path
+ * @param configPath Path to the config.json file
+ * @param logger Optional logger for warnings
+ * @returns Parsed and validated configuration object, or empty object if file doesn't exist or is invalid
  */
 export const loadConfigFromPath = async (
   configPath: string,
-  logger: Logger | undefined
+  logger?: Logger
 ): Promise<ConfigFile> => {
   try {
-    const content = await readFile(configPath, 'utf8');
-    const parsed = JSON5.parse(content) as unknown;
-    logger?.debug(`Loaded config file: ${configPath}`);
-    return validateConfig(parsed, dirname(resolve(configPath)), logger);
-  } catch (error) {
-    const nodeError = error as NodeJS.ErrnoException;
-    if (nodeError.code === 'ENOENT') {
-      logger?.debug(`Config file not found: ${configPath}`);
-      return {};
-    }
+    const content = await readFile(configPath, 'utf-8');
+    const config = JSON5.parse(content);
 
-    if (error instanceof SyntaxError) {
+    logger?.debug(`Loaded configuration from ${configPath}`);
+
+    // Extract directory from config file path for relative path resolution
+    const configDir =
+      configPath.substring(0, configPath.lastIndexOf('/')) ||
+      configPath.substring(0, configPath.lastIndexOf('\\')) ||
+      '.';
+
+    return validateConfig(config, configDir, logger);
+  } catch (error: any) {
+    if (error.code === 'ENOENT') {
+      // File doesn't exist - this is normal, return empty config
+      logger?.debug(`No config file found at ${configPath}`);
+      return {};
+    } else if (error instanceof SyntaxError) {
+      // JSON5 parse error
       logger?.warn(`Failed to parse config file: ${error.message}`);
       return {};
+    } else {
+      // Other errors (permissions, etc.)
+      logger?.warn(`Failed to load config file: ${error.message}`);
+      return {};
     }
-
-    logger?.warn(
-      `Failed to load config file: ${error instanceof Error ? error.message : String(error)}`
-    );
-    return {};
   }
+};
+
+/**
+ * Loads configuration from a config.json file in the specified directory
+ * @param configDir Directory containing config.json
+ * @param logger Optional logger for warnings
+ * @returns Parsed and validated configuration object, or empty object if file doesn't exist or is invalid
+ * @deprecated Use loadConfigFromPath instead
+ */
+export const loadConfigFromFile = async (
+  configDir: string,
+  logger?: Logger
+): Promise<ConfigFile> => {
+  const configPath = join(configDir, 'config.json');
+  return loadConfigFromPath(configPath, logger);
 };
