@@ -204,6 +204,34 @@ describe('storageService', () => {
     expect(listResult.items[0].directoryPath).toBe(
       '/runs/24224477918/attempt-1'
     );
+    expect(await service.listBrowseDirectories()).toEqual([
+      {
+        directoryPath: '/runs',
+        readonly: false,
+        fileGroupCount: 1,
+      },
+      {
+        directoryPath: '/readonly',
+        readonly: true,
+        fileGroupCount: 0,
+      },
+      {
+        directoryPath: '/readonly/incoming',
+        readonly: false,
+        fileGroupCount: 0,
+      },
+    ]);
+    expect(await service.listDirectoryFileGroups('/runs')).toEqual([
+      {
+        publicPath: nestedPath,
+        displayPath: '/runs/24224477918/attempt-1/foobar.txt',
+        directoryPath: '/runs/24224477918/attempt-1',
+        fileName: 'foobar.txt',
+        latestUploadId: stored.uploadId,
+        latestUploadedAt: stored.uploadedAt,
+        latestDownloadPath: '/api/files/runs/24224477918/attempt-1/foobar.txt',
+      },
+    ]);
 
     await expect(
       service.storeFile('readonly/deep/file.txt', Buffer.from('blocked'))
@@ -229,6 +257,36 @@ describe('storageService', () => {
         'utf-8'
       )
     ).toBe('reopened');
+    expect(await service.listBrowseDirectories()).toEqual([
+      {
+        directoryPath: '/runs',
+        readonly: false,
+        fileGroupCount: 1,
+      },
+      {
+        directoryPath: '/readonly',
+        readonly: true,
+        fileGroupCount: 0,
+      },
+      {
+        directoryPath: '/readonly/incoming',
+        readonly: false,
+        fileGroupCount: 1,
+      },
+    ]);
+    expect(await service.listDirectoryFileGroups('/readonly/incoming')).toEqual(
+      [
+        {
+          publicPath: reopenedPath,
+          displayPath: '/readonly/incoming/2026/file.txt',
+          directoryPath: '/readonly/incoming/2026',
+          fileName: 'file.txt',
+          latestUploadId: reopened.uploadId,
+          latestUploadedAt: reopened.uploadedAt,
+          latestDownloadPath: '/api/files/readonly/incoming/2026/file.txt',
+        },
+      ]
+    );
   });
 
   it('should create unique uploadIds when the timestamp collides', async () => {

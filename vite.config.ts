@@ -23,8 +23,11 @@ const devConfig: ServerConfig = {
   trustedProxies: [],
   authMode: 'none',
   storage: {
-    '/': {},
+    '/': {
+      description: 'Test root storage',
+    },
     '/tmp': {
+      description: 'Temporary storage (60sec)',
       expireSeconds: 60,
     },
   },

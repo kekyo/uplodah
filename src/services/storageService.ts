@@ -922,6 +922,13 @@ export const createStorageService = (
     return uploadId;
   };
 
+  const resolveBrowseDirectoryPath = (
+    groupDirectoryPath: string
+  ): string | undefined => {
+    const matchingRule = getMatchingRule(groupDirectoryPath);
+    return matchingRule?.directoryPath;
+  };
+
   return {
     initialize: async () => {
       await fs.mkdir(storageRoot, { recursive: true });
@@ -940,9 +947,16 @@ export const createStorageService = (
       const fileGroupCounts = new Map<string, number>();
 
       groups.forEach((group) => {
+        const browseDirectoryPath = resolveBrowseDirectoryPath(
+          group.directoryPath
+        );
+        if (!browseDirectoryPath) {
+          return;
+        }
+
         fileGroupCounts.set(
-          group.directoryPath,
-          (fileGroupCounts.get(group.directoryPath) ?? 0) + 1
+          browseDirectoryPath,
+          (fileGroupCounts.get(browseDirectoryPath) ?? 0) + 1
         );
       });
 
@@ -961,7 +975,10 @@ export const createStorageService = (
       ensureDirectoryDefined(directoryPath);
 
       const groups = await scanAllGroupSummaries();
-      return groups.filter((group) => group.directoryPath === directoryPath);
+      return groups.filter(
+        (group) =>
+          resolveBrowseDirectoryPath(group.directoryPath) === directoryPath
+      );
     },
 
     listFileGroupVersions: async (rawPublicPath: string) => {

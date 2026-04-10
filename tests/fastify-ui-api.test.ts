@@ -243,6 +243,92 @@ describe('Fastify UI backend API', () => {
     }
   }, 30000);
 
+  test('should aggregate nested file groups under the matching virtual directory in browse APIs', async () => {
+    const server = await startFastifyServer(
+      {
+        port: serverPort,
+        storageDir: testStorageDir,
+        configDir: testConfigDir,
+        realm: 'Test UI API - nested storage browse',
+        logLevel: testGlobalLogLevel,
+        authMode: 'none',
+        passwordStrengthCheck: false,
+        storage: {
+          '/runs': {
+            description: 'Workflow artifacts',
+          },
+        },
+      },
+      logger
+    );
+
+    try {
+      const nestedPath =
+        'runs/24224477918/attempt-2/polyfit-manuals/RJK.PolyFit.Manuals.zip';
+      const uploadResponse = await fetch(
+        `http://localhost:${serverPort}/api/upload/${nestedPath
+          .split('/')
+          .map((segment) => encodeURIComponent(segment))
+          .join('/')}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/octet-stream',
+          },
+          body: Buffer.from('manual bundle'),
+        }
+      );
+      expect(uploadResponse.status).toBe(201);
+      const uploadData = await uploadResponse.json();
+
+      const directoriesResponse = await fetch(
+        `http://localhost:${serverPort}/api/ui/browse/directories`
+      );
+      expect(directoriesResponse.status).toBe(200);
+      expect(await directoriesResponse.json()).toEqual({
+        items: [
+          {
+            directoryPath: '/runs',
+            description: 'Workflow artifacts',
+            readonly: false,
+            fileGroupCount: 1,
+          },
+        ],
+      });
+
+      const fileGroupsResponse = await fetch(
+        `http://localhost:${serverPort}/api/ui/browse/file-groups?directory=${encodeURIComponent('/runs')}`
+      );
+      expect(fileGroupsResponse.status).toBe(200);
+      expect(await fileGroupsResponse.json()).toEqual({
+        directoryPath: '/runs',
+        items: [
+          {
+            publicPath: nestedPath,
+            displayPath:
+              '/runs/24224477918/attempt-2/polyfit-manuals/RJK.PolyFit.Manuals.zip',
+            directoryPath: '/runs/24224477918/attempt-2/polyfit-manuals',
+            fileName: 'RJK.PolyFit.Manuals.zip',
+            latestUploadId: uploadData.uploadId,
+            latestUploadedAt: uploadData.uploadedAt,
+            latestDownloadPath:
+              '/api/files/runs/24224477918/attempt-2/polyfit-manuals/RJK.PolyFit.Manuals.zip',
+          },
+        ],
+      });
+
+      const versionsResponse = await fetch(
+        `http://localhost:${serverPort}/api/ui/browse/versions?publicPath=${encodeURIComponent(nestedPath)}`
+      );
+      expect(versionsResponse.status).toBe(200);
+      const versionsData = await versionsResponse.json();
+      expect(versionsData.publicPath).toBe(nestedPath);
+      expect(versionsData.items[0].uploadId).toBe(uploadData.uploadId);
+    } finally {
+      await server.close();
+    }
+  }, 30000);
+
   test('should protect browse APIs in full auth mode', async () => {
     const server = await startServer('full');
 

@@ -50,7 +50,13 @@ const sampleSections = [
   },
 ];
 
-const renderEntries = (expandedPanels: ReadonlySet<string>) =>
+const renderEntries = ({
+  expandedDirectoryPanels,
+  expandedPanels,
+}: {
+  expandedDirectoryPanels: ReadonlySet<string>;
+  expandedPanels: ReadonlySet<string>;
+}) =>
   renderToStaticMarkup(
     createElement(
       TypedMessageProvider,
@@ -59,12 +65,17 @@ const renderEntries = (expandedPanels: ReadonlySet<string>) =>
       },
       createElement(PackageListEntries, {
         sections: sampleSections,
+        loadedDirectoryPanels: new Set(['/']),
+        directoryLoadingPanels: new Set(),
+        directoryErrorsByPath: {},
+        expandedDirectoryPanels,
         expandedPanels,
         versionsByPublicPath: {
           'dockit-0.5.0.zip': sampleFiles[0].versions,
         },
         versionErrorsByPublicPath: {},
         versionLoadingPanels: new Set(),
+        onDirectoryAccordionChange: vi.fn(),
         onAccordionChange: vi.fn(),
       })
     )
@@ -122,7 +133,10 @@ describe('package list entries', () => {
   });
 
   test('renders collapsed file group summary rows', () => {
-    const html = renderEntries(new Set());
+    const html = renderEntries({
+      expandedDirectoryPanels: new Set(['/']),
+      expandedPanels: new Set(),
+    });
 
     expect(html).toContain('Root (/)');
     expect(html).toContain('1 file groups');
@@ -134,8 +148,24 @@ describe('package list entries', () => {
     expect(html).toContain('aria-expanded="false"');
   });
 
+  test('renders directory accordions in a collapsed state', () => {
+    const html = renderEntries({
+      expandedDirectoryPanels: new Set(),
+      expandedPanels: new Set(),
+    });
+
+    expect(html).toContain('Root (/)');
+    expect(html).toContain('1 file groups');
+    expect(html).toContain('Shared packages');
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('data-testid="FolderCopyIcon"');
+  });
+
   test('renders expanded group summary and revisions', () => {
-    const html = renderEntries(new Set(['dockit-0.5.0.zip']));
+    const html = renderEntries({
+      expandedDirectoryPanels: new Set(['/']),
+      expandedPanels: new Set(['dockit-0.5.0.zip']),
+    });
 
     expect(html).toContain('aria-expanded="true"');
     expect(html).toContain('Group Summary');
@@ -148,11 +178,11 @@ describe('package list entries', () => {
     expect(html).toContain('Download');
   });
 
-  test('renders the directory header with a folder icon', () => {
+  test('renders the directory header with a home icon', () => {
     const html = renderHeaderTitle(3);
 
     expect(html).toContain('Directories');
-    expect(html).toContain('data-testid="Folder');
+    expect(html).toContain('data-testid="HomeIcon"');
     expect(html).toContain('Directories (3)');
   });
 });
