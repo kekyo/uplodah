@@ -20,6 +20,8 @@ const sampleFiles = [
     publicPath: 'dockit-0.5.0.zip',
     displayPath: 'dockit-0.5.0.zip',
     directoryPath: '/',
+    browseDirectoryPath: '/',
+    browseRelativePath: 'dockit-0.5.0.zip',
     fileName: 'dockit-0.5.0.zip',
     latestUploadId: '20260407_145659_216',
     latestUploadedAt: '2026-04-07T14:56:59.000Z',
@@ -53,9 +55,22 @@ const sampleSections = [
 const renderEntries = ({
   expandedDirectoryPanels,
   expandedPanels,
+  sections = sampleSections,
+  versionsByPublicPath = {
+    'dockit-0.5.0.zip': sampleFiles[0].versions,
+  },
 }: {
   expandedDirectoryPanels: ReadonlySet<string>;
   expandedPanels: ReadonlySet<string>;
+  sections?: readonly {
+    directoryPath: string;
+    description?: string;
+    fileGroupCount: number;
+    files: readonly (typeof sampleFiles)[number][];
+  }[];
+  versionsByPublicPath?: Readonly<
+    Record<string, (typeof sampleFiles)[number]['versions'] | undefined>
+  >;
 }) =>
   renderToStaticMarkup(
     createElement(
@@ -64,15 +79,15 @@ const renderEntries = ({
         messages: enMessages,
       },
       createElement(PackageListEntries, {
-        sections: sampleSections,
-        loadedDirectoryPanels: new Set(['/']),
+        sections,
+        loadedDirectoryPanels: new Set(
+          sections.map((section) => section.directoryPath)
+        ),
         directoryLoadingPanels: new Set(),
         directoryErrorsByPath: {},
         expandedDirectoryPanels,
         expandedPanels,
-        versionsByPublicPath: {
-          'dockit-0.5.0.zip': sampleFiles[0].versions,
-        },
+        versionsByPublicPath,
         versionErrorsByPublicPath: {},
         versionLoadingPanels: new Set(),
         onDirectoryAccordionChange: vi.fn(),
@@ -159,6 +174,54 @@ describe('package list entries', () => {
     expect(html).toContain('Shared packages');
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain('data-testid="FolderCopyIcon"');
+  });
+
+  test('renders nested file groups relative to the section directory', () => {
+    const nestedFile = {
+      publicPath:
+        'runs/24224477918/attempt-2/polyfit-manuals/RJK.PolyFit.Manuals.zip',
+      displayPath:
+        '/runs/24224477918/attempt-2/polyfit-manuals/RJK.PolyFit.Manuals.zip',
+      directoryPath: '/runs/24224477918/attempt-2/polyfit-manuals',
+      browseDirectoryPath: '/runs',
+      browseRelativePath:
+        '24224477918/attempt-2/polyfit-manuals/RJK.PolyFit.Manuals.zip',
+      fileName: 'RJK.PolyFit.Manuals.zip',
+      latestUploadId: '20260410_080527_291',
+      latestUploadedAt: '2026-04-10T08:05:27.000Z',
+      latestDownloadPath:
+        '/api/files/runs/24224477918/attempt-2/polyfit-manuals/RJK.PolyFit.Manuals.zip',
+      versions: [
+        {
+          uploadId: '20260410_080527_291',
+          uploadedAt: '2026-04-10T08:05:27.000Z',
+          size: 12058624,
+          versionDownloadPath:
+            '/api/files/runs/24224477918/attempt-2/polyfit-manuals/RJK.PolyFit.Manuals.zip/20260410_080527_291',
+        },
+      ],
+    };
+    const html = renderEntries({
+      expandedDirectoryPanels: new Set(['/runs']),
+      expandedPanels: new Set(),
+      sections: [
+        {
+          directoryPath: '/runs',
+          description: 'Workflow artifacts',
+          fileGroupCount: 1,
+          files: [nestedFile],
+        },
+      ],
+      versionsByPublicPath: {
+        [nestedFile.publicPath]: nestedFile.versions,
+      },
+    });
+
+    expect(html).toContain('/runs');
+    expect(html).toContain('Workflow artifacts');
+    expect(html).toContain(
+      '24224477918/attempt-2/polyfit-manuals/RJK.PolyFit.Manuals.zip'
+    );
   });
 
   test('renders expanded group summary and revisions', () => {

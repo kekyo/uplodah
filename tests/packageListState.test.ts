@@ -5,6 +5,7 @@
 
 import { describe, expect, test } from 'vitest';
 import {
+  buildDirectorySections,
   buildBrowseDirectorySections,
   clearDirectoryPanelState,
   clearFileGroupPanelState,
@@ -17,6 +18,8 @@ describe('package list panel state helpers', () => {
         publicPath: 'dockit-0.5.0.zip',
         displayPath: 'dockit-0.5.0.zip',
         directoryPath: '/',
+        browseDirectoryPath: '/',
+        browseRelativePath: 'dockit-0.5.0.zip',
         fileName: 'dockit-0.5.0.zip',
         latestUploadId: '20260407_145659_216',
         latestUploadedAt: '2026-04-07T14:56:59.000Z',
@@ -66,6 +69,46 @@ describe('package list panel state helpers', () => {
     ]);
   });
 
+  test('groups search results under the most specific matching virtual directory', () => {
+    const nestedFile = {
+      publicPath:
+        'runs/24224477918/attempt-2/polyfit-manuals/RJK.PolyFit.Manuals.zip',
+      displayPath:
+        '/runs/24224477918/attempt-2/polyfit-manuals/RJK.PolyFit.Manuals.zip',
+      directoryPath: '/runs/24224477918/attempt-2/polyfit-manuals',
+      browseDirectoryPath: '/runs',
+      browseRelativePath:
+        '24224477918/attempt-2/polyfit-manuals/RJK.PolyFit.Manuals.zip',
+      fileName: 'RJK.PolyFit.Manuals.zip',
+      latestUploadId: '20260410_080527_291',
+      latestUploadedAt: '2026-04-10T08:05:27.000Z',
+      latestDownloadPath:
+        '/api/files/runs/24224477918/attempt-2/polyfit-manuals/RJK.PolyFit.Manuals.zip',
+    };
+
+    expect(
+      buildDirectorySections(
+        [nestedFile],
+        ['/', '/runs'],
+        new Map([
+          ['/', 0],
+          ['/runs', 1],
+        ]),
+        new Map([
+          ['/', undefined],
+          ['/runs', 'Workflow artifacts'],
+        ])
+      )
+    ).toEqual([
+      {
+        directoryPath: '/runs',
+        description: 'Workflow artifacts',
+        fileGroupCount: 1,
+        files: [nestedFile],
+      },
+    ]);
+  });
+
   test('clears cached file-group state when a file-group accordion closes', () => {
     const nextState = clearFileGroupPanelState({
       publicPath: 'dockit-0.5.0.zip',
@@ -107,6 +150,8 @@ describe('package list panel state helpers', () => {
             publicPath: 'dockit-0.5.0.zip',
             displayPath: 'dockit-0.5.0.zip',
             directoryPath: '/',
+            browseDirectoryPath: '/',
+            browseRelativePath: 'dockit-0.5.0.zip',
             fileName: 'dockit-0.5.0.zip',
             latestUploadId: '20260407_145659_216',
             latestUploadedAt: '2026-04-07T14:56:59.000Z',
@@ -118,6 +163,8 @@ describe('package list panel state helpers', () => {
             publicPath: 'keep.zip',
             displayPath: 'keep.zip',
             directoryPath: '/keep',
+            browseDirectoryPath: '/keep',
+            browseRelativePath: 'keep.zip',
             fileName: 'keep.zip',
             latestUploadId: '20260408_101010_001',
             latestUploadedAt: '2026-04-08T10:10:10.000Z',
@@ -158,6 +205,8 @@ describe('package list panel state helpers', () => {
           publicPath: 'keep.zip',
           displayPath: 'keep.zip',
           directoryPath: '/keep',
+          browseDirectoryPath: '/keep',
+          browseRelativePath: 'keep.zip',
           fileName: 'keep.zip',
           latestUploadId: '20260408_101010_001',
           latestUploadedAt: '2026-04-08T10:10:10.000Z',

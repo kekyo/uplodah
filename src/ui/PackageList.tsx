@@ -50,6 +50,8 @@ interface FileGroupSummary {
   publicPath: string;
   displayPath: string;
   directoryPath: string;
+  browseDirectoryPath: string;
+  browseRelativePath: string;
   fileName: string;
   latestUploadId: string;
   latestUploadedAt: string;
@@ -214,7 +216,22 @@ export const formatUploadedAt = (
   return `${localDate.format('YYYY/MM/DD HH:mm:ss')} ${formatUtcOffset(resolvedOffsetMinutes)} (${utcDate.format('YYYY/MM/DD HH:mm:ss [UTC]')})`;
 };
 
-const buildDirectorySections = (
+const buildFileGroupLabel = (
+  file: Pick<FileGroupSummary, 'browseRelativePath' | 'displayPath'>
+): string => file.browseRelativePath || file.displayPath;
+
+/**
+ * Build directory sections for file-group lists using the browse directory
+ * resolved by the API.
+ * @param files File-group summaries to arrange into sections.
+ * @param directoryOrder Browse-directory order returned by the server.
+ * @param explicitCountsByDirectory Optional total counts keyed by browse
+ * directory path.
+ * @param descriptionsByDirectory Optional descriptions keyed by browse
+ * directory path.
+ * @returns Directory sections in browse-directory order.
+ */
+export const buildDirectorySections = (
   files: readonly FileGroupSummary[],
   directoryOrder: readonly string[],
   explicitCountsByDirectory: ReadonlyMap<string, number> | undefined,
@@ -223,12 +240,13 @@ const buildDirectorySections = (
   const sections = new Map<string, FileGroupSummary[]>();
 
   files.forEach((file) => {
-    const sectionFiles = sections.get(file.directoryPath);
+    const sectionDirectoryPath = file.browseDirectoryPath;
+    const sectionFiles = sections.get(sectionDirectoryPath);
     if (sectionFiles) {
       sectionFiles.push(file);
       return;
     }
-    sections.set(file.directoryPath, [file]);
+    sections.set(sectionDirectoryPath, [file]);
   });
 
   const remainingDirectories = Array.from(sections.keys()).filter(
@@ -611,7 +629,7 @@ export const PackageListEntries = ({
                               component="div"
                               sx={{ fontWeight: 700, wordBreak: 'break-word' }}
                             >
-                              {file.fileName}
+                              {buildFileGroupLabel(file)}
                             </Typography>
                             <Typography
                               variant="body2"

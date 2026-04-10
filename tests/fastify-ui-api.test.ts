@@ -204,6 +204,8 @@ describe('Fastify UI backend API', () => {
             publicPath: 'tmp/flashcap.nupkg',
             displayPath: '/tmp/flashcap.nupkg',
             directoryPath: '/tmp',
+            browseDirectoryPath: '/tmp',
+            browseRelativePath: 'flashcap.nupkg',
             fileName: 'flashcap.nupkg',
             latestUploadId: uploadData.uploadId,
             latestUploadedAt: uploadData.uploadedAt,
@@ -231,6 +233,8 @@ describe('Fastify UI backend API', () => {
             publicPath: 'tmp/flashcap.nupkg',
             displayPath: '/tmp/flashcap.nupkg',
             directoryPath: '/tmp',
+            browseDirectoryPath: '/tmp',
+            browseRelativePath: 'flashcap.nupkg',
             fileName: 'flashcap.nupkg',
             latestUploadId: uploadData.uploadId,
             latestUploadedAt: uploadData.uploadedAt,
@@ -308,6 +312,9 @@ describe('Fastify UI backend API', () => {
             displayPath:
               '/runs/24224477918/attempt-2/polyfit-manuals/RJK.PolyFit.Manuals.zip',
             directoryPath: '/runs/24224477918/attempt-2/polyfit-manuals',
+            browseDirectoryPath: '/runs',
+            browseRelativePath:
+              '24224477918/attempt-2/polyfit-manuals/RJK.PolyFit.Manuals.zip',
             fileName: 'RJK.PolyFit.Manuals.zip',
             latestUploadId: uploadData.uploadId,
             latestUploadedAt: uploadData.uploadedAt,
@@ -324,6 +331,30 @@ describe('Fastify UI backend API', () => {
       const versionsData = await versionsResponse.json();
       expect(versionsData.publicPath).toBe(nestedPath);
       expect(versionsData.items[0].uploadId).toBe(uploadData.uploadId);
+
+      const searchResponse = await fetch(
+        `http://localhost:${serverPort}/api/ui/browse/search?q=manuals`
+      );
+      expect(searchResponse.status).toBe(200);
+      expect(await searchResponse.json()).toEqual({
+        query: 'manuals',
+        items: [
+          {
+            publicPath: nestedPath,
+            displayPath:
+              '/runs/24224477918/attempt-2/polyfit-manuals/RJK.PolyFit.Manuals.zip',
+            directoryPath: '/runs/24224477918/attempt-2/polyfit-manuals',
+            browseDirectoryPath: '/runs',
+            browseRelativePath:
+              '24224477918/attempt-2/polyfit-manuals/RJK.PolyFit.Manuals.zip',
+            fileName: 'RJK.PolyFit.Manuals.zip',
+            latestUploadId: uploadData.uploadId,
+            latestUploadedAt: uploadData.uploadedAt,
+            latestDownloadPath:
+              '/api/files/runs/24224477918/attempt-2/polyfit-manuals/RJK.PolyFit.Manuals.zip',
+          },
+        ],
+      });
     } finally {
       await server.close();
     }

@@ -44,12 +44,23 @@ export interface StoredFileVersionInfo {
  * Stored file-group summary returned to the browse/search API.
  */
 export interface StoredFileGroupSummaryInfo {
+  /** Public file path relative to the storage root. */
   publicPath: string;
+  /** Human-readable full path shown in the UI. */
   displayPath: string;
+  /** Actual public parent directory that contains the file group. */
   directoryPath: string;
+  /** Directory section path used to group the file in browse/search views. */
+  browseDirectoryPath: string;
+  /** File label relative to the browse directory section. */
+  browseRelativePath: string;
+  /** Basename of the file group. */
   fileName: string;
+  /** Upload identifier of the latest stored version. */
   latestUploadId: string;
+  /** ISO-8601 timestamp of the latest stored version. */
   latestUploadedAt: string;
+  /** Latest-download API path for the file group. */
   latestDownloadPath: string;
 }
 
@@ -384,6 +395,30 @@ export const createStorageService = (
   const createDirectoryDescriptionFields = (description?: string) =>
     description !== undefined ? { description } : {};
 
+  const splitDirectoryPathSegments = (directoryPath: string): string[] =>
+    directoryPath === '/'
+      ? []
+      : directoryPath.split('/').filter((segment) => segment.length > 0);
+
+  const isDirectoryWithinRule = (
+    directoryPath: string,
+    candidatePath: string
+  ): boolean => {
+    if (candidatePath === '/') {
+      return true;
+    }
+
+    const directorySegments = splitDirectoryPathSegments(directoryPath);
+    const candidateSegments = splitDirectoryPathSegments(candidatePath);
+    if (candidateSegments.length > directorySegments.length) {
+      return false;
+    }
+
+    return candidateSegments.every(
+      (candidateSegment, index) => directorySegments[index] === candidateSegment
+    );
+  };
+
   const getAvailableUploadDirectoryDetails =
     (): StorageDirectoryDescriptor[] => {
       if (!storageRules) {
@@ -430,16 +465,14 @@ export const createStorageService = (
     }
 
     const matches = Object.entries(storageRules)
-      .filter(([candidatePath]) => {
-        if (candidatePath === '/') {
-          return true;
-        }
-        return (
-          directoryPath === candidatePath ||
-          directoryPath.startsWith(`${candidatePath}/`)
-        );
-      })
-      .sort((left, right) => right[0].length - left[0].length);
+      .filter(([candidatePath]) =>
+        isDirectoryWithinRule(directoryPath, candidatePath)
+      )
+      .sort(
+        (left, right) =>
+          splitDirectoryPathSegments(right[0]).length -
+          splitDirectoryPathSegments(left[0]).length
+      );
 
     const matched = matches[0];
     return matched
@@ -523,18 +556,59 @@ export const createStorageService = (
     versionDownloadPath: `/api/files/${encodePublicPath(normalizedPath)}/${encodeURIComponent(version.uploadId)}`,
   });
 
+  const resolveBrowseDirectoryPath = (groupDirectoryPath: string): string => {
+    const matchingRule = getMatchingRule(groupDirectoryPath);
+    if (matchingRule) {
+      return matchingRule.directoryPath;
+    }
+    return hasStorageRules ? groupDirectoryPath : '/';
+  };
+
+  const buildBrowseRelativePath = (
+    publicPath: string,
+    displayPath: string,
+    browseDirectoryPath: string
+  ): string => {
+    const publicPathSegments = publicPath
+      .split('/')
+      .filter((segment) => segment.length > 0);
+    const browseSegments = splitDirectoryPathSegments(browseDirectoryPath);
+    if (
+      browseSegments.length <= publicPathSegments.length &&
+      browseSegments.every(
+        (browseSegment, index) => publicPathSegments[index] === browseSegment
+      )
+    ) {
+      return publicPathSegments.slice(browseSegments.length).join('/');
+    }
+
+    return displayPath;
+  };
+
   const createGroupSummaryInfo = (
     normalizedPath: NormalizedPublicPath,
     latestVersion: InternalStoredFileVersion
-  ): StoredFileGroupSummaryInfo => ({
-    publicPath: normalizedPath.publicPath,
-    displayPath: normalizedPath.displayPath,
-    directoryPath: normalizedPath.directoryPath,
-    fileName: normalizedPath.fileName,
-    latestUploadId: latestVersion.uploadId,
-    latestUploadedAt: latestVersion.uploadedAt,
-    latestDownloadPath: `/api/files/${encodePublicPath(normalizedPath)}`,
-  });
+  ): StoredFileGroupSummaryInfo => {
+    const browseDirectoryPath = resolveBrowseDirectoryPath(
+      normalizedPath.directoryPath
+    );
+
+    return {
+      publicPath: normalizedPath.publicPath,
+      displayPath: normalizedPath.displayPath,
+      directoryPath: normalizedPath.directoryPath,
+      browseDirectoryPath,
+      browseRelativePath: buildBrowseRelativePath(
+        normalizedPath.publicPath,
+        normalizedPath.displayPath,
+        browseDirectoryPath
+      ),
+      fileName: normalizedPath.fileName,
+      latestUploadId: latestVersion.uploadId,
+      latestUploadedAt: latestVersion.uploadedAt,
+      latestDownloadPath: `/api/files/${encodePublicPath(normalizedPath)}`,
+    };
+  };
 
   const createStoredVersion = (
     normalizedPath: NormalizedPublicPath,
@@ -682,7 +756,13 @@ export const createStorageService = (
   ): StoredFileGroupInfo => {
     const latestVersion = versions[0]!;
     return {
-      ...createGroupSummaryInfo(normalizedPath, latestVersion),
+      publicPath: normalizedPath.publicPath,
+      displayPath: normalizedPath.displayPath,
+      directoryPath: normalizedPath.directoryPath,
+      fileName: normalizedPath.fileName,
+      latestUploadId: latestVersion.uploadId,
+      latestUploadedAt: latestVersion.uploadedAt,
+      latestDownloadPath: `/api/files/${encodePublicPath(normalizedPath)}`,
       versions: versions.map((version) =>
         createVersionInfo(normalizedPath, version)
       ),
@@ -691,15 +771,25 @@ export const createStorageService = (
 
   const toGroupSummaryInfo = (
     group: StoredFileGroupInfo
-  ): StoredFileGroupSummaryInfo => ({
-    publicPath: group.publicPath,
-    displayPath: group.displayPath,
-    directoryPath: group.directoryPath,
-    fileName: group.fileName,
-    latestUploadId: group.latestUploadId,
-    latestUploadedAt: group.latestUploadedAt,
-    latestDownloadPath: group.latestDownloadPath,
-  });
+  ): StoredFileGroupSummaryInfo => {
+    const browseDirectoryPath = resolveBrowseDirectoryPath(group.directoryPath);
+
+    return {
+      publicPath: group.publicPath,
+      displayPath: group.displayPath,
+      directoryPath: group.directoryPath,
+      browseDirectoryPath,
+      browseRelativePath: buildBrowseRelativePath(
+        group.publicPath,
+        group.displayPath,
+        browseDirectoryPath
+      ),
+      fileName: group.fileName,
+      latestUploadId: group.latestUploadId,
+      latestUploadedAt: group.latestUploadedAt,
+      latestDownloadPath: group.latestDownloadPath,
+    };
+  };
 
   const scanLegacyStorage = async (): Promise<StoredFileGroupInfo[]> => {
     const groups: StoredFileGroupInfo[] = [];
@@ -922,13 +1012,6 @@ export const createStorageService = (
     return uploadId;
   };
 
-  const resolveBrowseDirectoryPath = (
-    groupDirectoryPath: string
-  ): string | undefined => {
-    const matchingRule = getMatchingRule(groupDirectoryPath);
-    return matchingRule?.directoryPath;
-  };
-
   return {
     initialize: async () => {
       await fs.mkdir(storageRoot, { recursive: true });
@@ -950,10 +1033,6 @@ export const createStorageService = (
         const browseDirectoryPath = resolveBrowseDirectoryPath(
           group.directoryPath
         );
-        if (!browseDirectoryPath) {
-          return;
-        }
-
         fileGroupCounts.set(
           browseDirectoryPath,
           (fileGroupCounts.get(browseDirectoryPath) ?? 0) + 1
@@ -976,8 +1055,7 @@ export const createStorageService = (
 
       const groups = await scanAllGroupSummaries();
       return groups.filter(
-        (group) =>
-          resolveBrowseDirectoryPath(group.directoryPath) === directoryPath
+        (group) => group.browseDirectoryPath === directoryPath
       );
     },
 

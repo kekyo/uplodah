@@ -145,6 +145,8 @@ describe('storageService', () => {
         publicPath: 'incoming/file.txt',
         displayPath: '/incoming/file.txt',
         directoryPath: '/incoming',
+        browseDirectoryPath: '/incoming',
+        browseRelativePath: 'file.txt',
         fileName: 'file.txt',
         latestUploadId: stored.uploadId,
         latestUploadedAt: stored.uploadedAt,
@@ -226,6 +228,8 @@ describe('storageService', () => {
         publicPath: nestedPath,
         displayPath: '/runs/24224477918/attempt-1/foobar.txt',
         directoryPath: '/runs/24224477918/attempt-1',
+        browseDirectoryPath: '/runs',
+        browseRelativePath: '24224477918/attempt-1/foobar.txt',
         fileName: 'foobar.txt',
         latestUploadId: stored.uploadId,
         latestUploadedAt: stored.uploadedAt,
@@ -280,6 +284,8 @@ describe('storageService', () => {
           publicPath: reopenedPath,
           displayPath: '/readonly/incoming/2026/file.txt',
           directoryPath: '/readonly/incoming/2026',
+          browseDirectoryPath: '/readonly/incoming',
+          browseRelativePath: '2026/file.txt',
           fileName: 'file.txt',
           latestUploadId: reopened.uploadId,
           latestUploadedAt: reopened.uploadedAt,
@@ -481,6 +487,8 @@ describe('storageService', () => {
         publicPath: 'tmp/flashcap.nupkg',
         displayPath: '/tmp/flashcap.nupkg',
         directoryPath: '/tmp',
+        browseDirectoryPath: '/tmp',
+        browseRelativePath: 'flashcap.nupkg',
         fileName: 'flashcap.nupkg',
         latestUploadId: nestedStored.uploadId,
         latestUploadedAt: nestedStored.uploadedAt,
@@ -492,10 +500,54 @@ describe('storageService', () => {
         publicPath: 'report.txt',
         displayPath: 'report.txt',
         directoryPath: '/',
+        browseDirectoryPath: '/',
+        browseRelativePath: 'report.txt',
         fileName: 'report.txt',
         latestUploadId: rootStored.uploadId,
         latestUploadedAt: rootStored.uploadedAt,
         latestDownloadPath: '/api/files/report.txt',
+      },
+    ]);
+  });
+
+  it('should resolve virtual directories by path segments instead of string prefixes', async () => {
+    const service = createService({
+      storage: {
+        '/runs': {},
+        '/runs2': {},
+      },
+    });
+    await service.initialize();
+
+    const stored = await service.storeFile(
+      'runs2/24224477918/attempt-1/foobar.txt',
+      Buffer.from('segmented')
+    );
+
+    expect(await service.listBrowseDirectories()).toEqual([
+      {
+        directoryPath: '/runs',
+        readonly: false,
+        fileGroupCount: 0,
+      },
+      {
+        directoryPath: '/runs2',
+        readonly: false,
+        fileGroupCount: 1,
+      },
+    ]);
+    expect(await service.listDirectoryFileGroups('/runs')).toEqual([]);
+    expect(await service.listDirectoryFileGroups('/runs2')).toEqual([
+      {
+        publicPath: 'runs2/24224477918/attempt-1/foobar.txt',
+        displayPath: '/runs2/24224477918/attempt-1/foobar.txt',
+        directoryPath: '/runs2/24224477918/attempt-1',
+        browseDirectoryPath: '/runs2',
+        browseRelativePath: '24224477918/attempt-1/foobar.txt',
+        fileName: 'foobar.txt',
+        latestUploadId: stored.uploadId,
+        latestUploadedAt: stored.uploadedAt,
+        latestDownloadPath: '/api/files/runs2/24224477918/attempt-1/foobar.txt',
       },
     ]);
   });
