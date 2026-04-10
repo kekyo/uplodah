@@ -26,12 +26,14 @@ import {
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DownloadIcon from '@mui/icons-material/Download';
+import FolderCopyIcon from '@mui/icons-material/FolderCopy';
 import FileIcon from '@mui/icons-material/InsertDriveFile';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import { TypedMessage, useTypedMessage } from 'typed-message';
 import { messages } from '../generated/messages';
 import { apiFetch } from './utils/apiClient';
+import { fileGroupIconsByExtension } from './fileIcons';
 
 dayjs.extend(utc);
 
@@ -125,6 +127,35 @@ export const shouldShowPackageListInitialLoading = (
   browseLoading: boolean,
   isSearchMode: boolean
 ): boolean => browseLoading && !isSearchMode;
+
+type FileGroupIconComponent = typeof FileIcon;
+
+const getNormalizedFileExtension = (fileName: string): string | undefined => {
+  const lastDotIndex = fileName.lastIndexOf('.');
+  if (lastDotIndex <= 0 || lastDotIndex === fileName.length - 1) {
+    return undefined;
+  }
+
+  return fileName.slice(lastDotIndex + 1).toLowerCase();
+};
+
+/**
+ * Resolve the icon component used for a file-group entry by file extension.
+ * @param fileName File name shown in the file-group list.
+ * @returns A representative MUI icon component, or the default file icon.
+ * @remarks Representative mappings include pdf, image, video, audio, archive,
+ * text, document, spreadsheet, structured data, web, script, and source files.
+ */
+export const resolveFileGroupIconComponent = (
+  fileName: string
+): FileGroupIconComponent => {
+  const extension = getNormalizedFileExtension(fileName);
+  if (extension === undefined) {
+    return FileIcon;
+  }
+
+  return fileGroupIconsByExtension[extension] ?? FileIcon;
+};
 
 const formatSize = (size: number): string => {
   if (size >= 1024 * 1024) {
@@ -251,6 +282,9 @@ export const PackageListEntries = ({
           </Box>
           <Stack spacing={1.25} useFlexGap>
             {section.files.map((file) => {
+              const FileGroupIcon = resolveFileGroupIconComponent(
+                file.fileName
+              );
               const versions = versionsByPublicPath[file.publicPath];
               const versionError = versionErrorsByPublicPath[file.publicPath];
               const isVersionLoading = versionLoadingPanels.has(
@@ -313,7 +347,7 @@ export const PackageListEntries = ({
                         width: '100%',
                       }}
                     >
-                      <FileIcon
+                      <FileGroupIcon
                         sx={{
                           color: 'text.secondary',
                           fontSize: '2rem',
@@ -491,6 +525,32 @@ export const PackageListEntries = ({
     </Stack>
   );
 };
+
+/**
+ * Render the package-list header title with the directory counter.
+ * @param visibleDirectoryCount Number of visible directory sections.
+ * @returns Package-list header title element.
+ */
+export const PackageListHeaderTitle = ({
+  visibleDirectoryCount,
+}: {
+  visibleDirectoryCount: number;
+}) => (
+  <Typography
+    variant="h4"
+    component="h1"
+    sx={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 1,
+      fontWeight: 700,
+    }}
+  >
+    <FolderCopyIcon />
+    <TypedMessage message={messages.FILE_GROUPS_HEADER} /> (
+    {visibleDirectoryCount})
+  </Typography>
+);
 
 const PackageList = forwardRef<PackageListRef, PackageListProps>(
   ({ serverConfig }, ref) => {
@@ -925,20 +985,9 @@ const PackageList = forwardRef<PackageListRef, PackageListProps>(
             flexWrap: 'wrap',
           }}
         >
-          <Typography
-            variant="h4"
-            component="h1"
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1,
-              fontWeight: 700,
-            }}
-          >
-            <FileIcon />
-            <TypedMessage message={messages.FILE_GROUPS_HEADER} /> (
-            {visibleDirectoryCount})
-          </Typography>
+          <PackageListHeaderTitle
+            visibleDirectoryCount={visibleDirectoryCount}
+          />
           <Box
             sx={{
               display: 'flex',
