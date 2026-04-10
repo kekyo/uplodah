@@ -65,6 +65,9 @@ const renderEntries = ({
       },
       createElement(PackageListEntries, {
         sections: sampleSections,
+        loadedDirectoryPanels: new Set(['/']),
+        directoryLoadingPanels: new Set(),
+        directoryErrorsByPath: {},
         expandedDirectoryPanels,
         expandedPanels,
         versionsByPublicPath: {
