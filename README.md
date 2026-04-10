@@ -301,7 +301,8 @@ You can define rules for virtual directories in `config.json`.
 The `storage` section is optional.
 If it is not defined, uploads are accepted only at the root with plain file names.
 
-Once `storage: { ... }` is defined, uploads to undefined directories are rejected.
+Once `storage: { ... }` is defined, uploads must target a path under a configured virtual directory.
+When uploading into deeper subdirectories, the most specific matching virtual directory rule is applied.
 You can also configure behavior per virtual directory.
 
 Here is an example `storage` section in `config.json`:
@@ -310,14 +311,19 @@ Here is an example `storage` section in `config.json`:
 {
   "port": 5968,
   "storage": {
-    "/": {},
+    // Enabled virtual directories
+    "/": {}, // (Root directory)
     "/bropdox": {
-      "expireSeconds": 86400
+      // "/bropdox"
+      "description": "Temporary sharing area",
+      "expireSeconds": 86400 // Expire after 24 hours
     },
     "/archive": {
+      // "/archive"
+      "description": "Long-term archive",
       "readonly": true
     },
-    "/archive/incoming": {}
+    "/archive/incoming": {} // "/archive/incoming"
   }
 }
 ```
@@ -325,17 +331,18 @@ Here is an example `storage` section in `config.json`:
 In this example:
 
 - `/` accepts normal uploads
-- Uploads under `/bropdox` expire automatically after 24 hours
+- Uploads anywhere under `/bropdox` expire automatically after 24 hours
 - `/archive` is read-only
-- `/archive/incoming` is more specific than `/archive`, so uploads are allowed there again
+- `/archive/incoming` is more specific than `/archive`, so uploads are allowed there again under that subtree
 
 Rule behavior:
 
 - Keys must always start with `/`
 - Backslashes and relative path segments such as `.` and `..` are not allowed
+- `description` is shown in the UI directory list and upload-directory selector
 - The most specific matching directory rule is applied
-- Once `storage` is defined, uploads to undefined directories are rejected
-  To allow uploads at the root directory as well, include `/` explicitly as shown above
+- Once `storage` is defined, uploads outside configured virtual directory subtrees are rejected
+  To allow uploads at the root directory and its descendants as well, include `/` explicitly as shown above
 
 ### Backup and Restore
 

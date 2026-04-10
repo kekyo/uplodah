@@ -8,7 +8,12 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { TypedMessageProvider } from 'typed-message';
 import { describe, expect, test, vi } from 'vitest';
 import enMessages from '../src/ui/public/locale/en.json';
-import { PackageListEntries, formatUploadedAt } from '../src/ui/PackageList';
+import {
+  PackageListEntries,
+  PackageListHeaderTitle,
+  formatUploadedAt,
+  resolveFileGroupIconComponent,
+} from '../src/ui/PackageList';
 
 const sampleFiles = [
   {
@@ -39,6 +44,7 @@ const sampleFiles = [
 const sampleSections = [
   {
     directoryPath: '/',
+    description: 'Shared packages',
     fileGroupCount: sampleFiles.length,
     files: sampleFiles,
   },
@@ -64,6 +70,22 @@ const renderEntries = (expandedPanels: ReadonlySet<string>) =>
     )
   );
 
+const renderHeaderTitle = (visibleDirectoryCount: number) =>
+  renderToStaticMarkup(
+    createElement(
+      TypedMessageProvider,
+      {
+        messages: enMessages,
+      },
+      createElement(PackageListHeaderTitle, {
+        visibleDirectoryCount,
+      })
+    )
+  );
+
+const renderFileGroupIcon = (fileName: string) =>
+  renderToStaticMarkup(createElement(resolveFileGroupIconComponent(fileName)));
+
 describe('package list entries', () => {
   test('formats uploaded timestamps as local time plus UTC', () => {
     expect(formatUploadedAt('2026-04-09T07:02:16.000Z', 540)).toBe(
@@ -72,14 +94,43 @@ describe('package list entries', () => {
     expect(formatUploadedAt('not-a-date', 540)).toBe('not-a-date');
   });
 
+  test('selects representative icons by file extension and falls back to the default file icon', () => {
+    expect(renderFileGroupIcon('report.pdf')).toContain(
+      'data-testid="PictureAsPdfIcon"'
+    );
+    expect(renderFileGroupIcon('photo.png')).toContain(
+      'data-testid="ImageIcon"'
+    );
+    expect(renderFileGroupIcon('movie.mp4')).toContain(
+      'data-testid="MovieIcon"'
+    );
+    expect(renderFileGroupIcon('song.mp3')).toContain(
+      'data-testid="AudioFileIcon"'
+    );
+    expect(renderFileGroupIcon('archive.zip')).toContain(
+      'data-testid="ArchiveIcon"'
+    );
+    expect(renderFileGroupIcon('table.csv')).toContain(
+      'data-testid="TableChartIcon"'
+    );
+    expect(renderFileGroupIcon('app.tsx')).toContain(
+      'data-testid="JavascriptIcon"'
+    );
+    expect(renderFileGroupIcon('README')).toContain(
+      'data-testid="InsertDriveFileIcon"'
+    );
+  });
+
   test('renders collapsed file group summary rows', () => {
     const html = renderEntries(new Set());
 
     expect(html).toContain('Root (/)');
     expect(html).toContain('1 file groups');
+    expect(html).toContain('Shared packages');
     expect(html).toContain('dockit-0.5.0.zip');
     expect(html).toContain('Latest upload:');
     expect(html).toContain('(2026/04/07 14:56:59 UTC)');
+    expect(html).toContain('data-testid="ArchiveIcon"');
     expect(html).toContain('aria-expanded="false"');
   });
 
@@ -95,5 +146,13 @@ describe('package list entries', () => {
     expect(html).toContain('Upload ID: 20260407_145157_213');
     expect(html).toContain('Size: 41.1 KB');
     expect(html).toContain('Download');
+  });
+
+  test('renders the directory header with a folder icon', () => {
+    const html = renderHeaderTitle(3);
+
+    expect(html).toContain('Directories');
+    expect(html).toContain('data-testid="Folder');
+    expect(html).toContain('Directories (3)');
   });
 });

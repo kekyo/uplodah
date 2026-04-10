@@ -69,8 +69,11 @@ describe('storageService', () => {
   it('should filter readonly directories from available uploads and enforce rules', async () => {
     const service = createService({
       storage: {
-        '/incoming': {},
+        '/incoming': {
+          description: 'Incoming artifacts',
+        },
         '/readonly': {
+          description: 'Read-only archive',
           readonly: true,
         },
       },
@@ -78,14 +81,22 @@ describe('storageService', () => {
     await service.initialize();
 
     expect(service.getAvailableUploadDirectories()).toEqual(['/incoming']);
+    expect(service.getAvailableUploadDirectoryDetails()).toEqual([
+      {
+        directoryPath: '/incoming',
+        description: 'Incoming artifacts',
+      },
+    ]);
     expect(await service.listBrowseDirectories()).toEqual([
       {
         directoryPath: '/incoming',
+        description: 'Incoming artifacts',
         readonly: false,
         fileGroupCount: 0,
       },
       {
         directoryPath: '/readonly',
+        description: 'Read-only archive',
         readonly: true,
         fileGroupCount: 0,
       },
@@ -118,11 +129,13 @@ describe('storageService', () => {
     expect(await service.listBrowseDirectories()).toEqual([
       {
         directoryPath: '/incoming',
+        description: 'Incoming artifacts',
         readonly: false,
         fileGroupCount: 1,
       },
       {
         directoryPath: '/readonly',
+        description: 'Read-only archive',
         readonly: true,
         fileGroupCount: 0,
       },
@@ -146,6 +159,76 @@ describe('storageService', () => {
         versionDownloadPath: `/api/files/incoming/file.txt/${stored.uploadId}`,
       },
     ]);
+  });
+
+  it('should allow nested uploads under matching rule prefixes and honor more specific rules', async () => {
+    const service = createService({
+      storage: {
+        '/runs': {},
+        '/readonly': {
+          readonly: true,
+        },
+        '/readonly/incoming': {},
+      },
+    });
+    await service.initialize();
+
+    const nestedPath = 'runs/24224477918/attempt-1/foobar.txt';
+    const stored = await service.storeFile(nestedPath, Buffer.from('allowed'));
+
+    expect(stored.publicPath).toBe(nestedPath);
+    expect(stored.directoryPath).toBe('/runs/24224477918/attempt-1');
+    expect(stored.fileName).toBe('foobar.txt');
+    expect(
+      await fs.readFile(
+        path.join(
+          testDir,
+          'runs',
+          '24224477918',
+          'attempt-1',
+          'foobar.txt',
+          stored.uploadId,
+          'foobar.txt'
+        ),
+        'utf-8'
+      )
+    ).toBe('allowed');
+
+    const latest = await service.getLatestFileVersion(nestedPath);
+    expect(latest?.publicPath).toBe(nestedPath);
+    expect(latest?.directoryPath).toBe('/runs/24224477918/attempt-1');
+
+    const listResult = await service.listFiles(0, 20);
+    expect(listResult.totalCount).toBe(1);
+    expect(listResult.items[0].publicPath).toBe(nestedPath);
+    expect(listResult.items[0].directoryPath).toBe(
+      '/runs/24224477918/attempt-1'
+    );
+
+    await expect(
+      service.storeFile('readonly/deep/file.txt', Buffer.from('blocked'))
+    ).rejects.toThrow('Upload directory is read-only');
+
+    const reopenedPath = 'readonly/incoming/2026/file.txt';
+    const reopened = await service.storeFile(
+      reopenedPath,
+      Buffer.from('reopened')
+    );
+    expect(reopened.directoryPath).toBe('/readonly/incoming/2026');
+    expect(
+      await fs.readFile(
+        path.join(
+          testDir,
+          'readonly',
+          'incoming',
+          '2026',
+          'file.txt',
+          reopened.uploadId,
+          'file.txt'
+        ),
+        'utf-8'
+      )
+    ).toBe('reopened');
   });
 
   it('should create unique uploadIds when the timestamp collides', async () => {

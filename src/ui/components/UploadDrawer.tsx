@@ -25,6 +25,7 @@ import {
   Paper,
   Select,
   Stack,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import {
@@ -39,6 +40,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { TypedMessage, useTypedMessage } from 'typed-message';
 import { messages } from '../../generated/messages';
 import { apiFetch } from '../utils/apiClient';
+import type { StorageDirectoryDescriptor } from '../../types';
 
 interface UploadDrawerProps {
   open: boolean;
@@ -46,6 +48,7 @@ interface UploadDrawerProps {
   onUploadSuccess: () => void;
   serverConfig?: {
     storageDirectories?: string[];
+    storageDirectoryDetails?: StorageDirectoryDescriptor[];
   } | null;
 }
 
@@ -63,6 +66,8 @@ interface UploadResultSummaryContentProps {
   uploadId: string | undefined;
 }
 
+interface UploadDirectoryOption extends StorageDirectoryDescriptor {}
+
 const encodePublicPath = (publicPath: string): string =>
   publicPath
     .split('/')
@@ -77,6 +82,62 @@ const joinDirectoryAndFileName = (
     return fileName;
   }
   return `${directoryPath.replace(/^\/+/, '')}/${fileName}`;
+};
+
+/**
+ * Build upload-directory options with optional descriptions for the UI.
+ * @param storageDirectories Writable directory path list from the server.
+ * @param storageDirectoryDetails Writable directory metadata from the server.
+ * @returns Uploadable directory options in display order.
+ */
+export const buildUploadDirectoryOptions = (
+  storageDirectories: readonly string[] | undefined,
+  storageDirectoryDetails: readonly StorageDirectoryDescriptor[] | undefined
+): UploadDirectoryOption[] => {
+  if (storageDirectoryDetails && storageDirectoryDetails.length > 0) {
+    return storageDirectoryDetails.map((directory) => ({
+      directoryPath: directory.directoryPath,
+      ...(directory.description !== undefined
+        ? { description: directory.description }
+        : {}),
+    }));
+  }
+
+  return (storageDirectories ?? ['/']).map((directoryPath) => ({
+    directoryPath,
+  }));
+};
+
+/**
+ * Tooltip-wrapped upload directory path label.
+ * @param directoryPath Public virtual directory path.
+ * @param description Optional tooltip text shown on hover.
+ * @returns Label node for upload-directory selectors.
+ */
+export const UploadDirectoryTooltipLabel = ({
+  directoryPath,
+  description,
+}: UploadDirectoryOption) => {
+  return (
+    <Tooltip
+      title={description || ''}
+      disableHoverListener={!description}
+      describeChild
+    >
+      <Box
+        component="span"
+        sx={{
+          display: 'block',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          width: '100%',
+        }}
+      >
+        {directoryPath}
+      </Box>
+    </Tooltip>
+  );
 };
 
 /**
@@ -136,7 +197,17 @@ const UploadDrawer = ({
   const [isDragging, setIsDragging] = useState(false);
   const dragCounter = useRef(0);
 
-  const uploadDirectories = serverConfig?.storageDirectories ?? ['/'];
+  const uploadDirectoryOptions = buildUploadDirectoryOptions(
+    serverConfig?.storageDirectories,
+    serverConfig?.storageDirectoryDetails
+  );
+  const uploadDirectories = uploadDirectoryOptions.map(
+    (directory) => directory.directoryPath
+  );
+  const selectedDirectoryOption =
+    uploadDirectoryOptions.find(
+      (directory) => directory.directoryPath === selectedDirectory
+    ) ?? uploadDirectoryOptions[0];
 
   useEffect(() => {
     if (uploadDirectories.includes(selectedDirectory)) {
@@ -357,18 +428,45 @@ const UploadDrawer = ({
                   labelId="upload-directory-label"
                   value={selectedDirectory}
                   label={getMessage(messages.UPLOAD_DIRECTORY)}
+                  renderValue={(directoryPath) => {
+                    const directory = uploadDirectoryOptions.find(
+                      (entry) => entry.directoryPath === directoryPath
+                    );
+
+                    return (
+                      <UploadDirectoryTooltipLabel
+                        directoryPath={String(directoryPath)}
+                        description={directory?.description}
+                      />
+                    );
+                  }}
                   onChange={(event) =>
                     setSelectedDirectory(event.target.value as string)
                   }
                 >
-                  {uploadDirectories.map((directory) => (
-                    <MenuItem key={directory} value={directory}>
-                      {directory}
+                  {uploadDirectoryOptions.map((directory) => (
+                    <MenuItem
+                      key={directory.directoryPath}
+                      value={directory.directoryPath}
+                    >
+                      <UploadDirectoryTooltipLabel
+                        directoryPath={directory.directoryPath}
+                        description={directory.description}
+                      />
                     </MenuItem>
                   ))}
                 </Select>
               </FormControl>
             )}
+            {selectedDirectoryOption?.description ? (
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{ mb: 3, mt: -2 }}
+              >
+                {selectedDirectoryOption.description}
+              </Typography>
+            ) : null}
 
             <Paper
               sx={{

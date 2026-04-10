@@ -536,6 +536,8 @@ export const createFastifyInstance = async (
       currentUser: currentUser,
       availableLanguages: availableLanguages,
       storageDirectories: storageService.getAvailableUploadDirectories(),
+      storageDirectoryDetails:
+        storageService.getAvailableUploadDirectoryDetails(),
     };
   });
 
@@ -553,6 +555,8 @@ export const createFastifyInstance = async (
           realm: config.realm || `${packageName} ${version}`,
           serverUrl,
           storageDirectories: storageService.getAvailableUploadDirectories(),
+          storageDirectoryDetails:
+            storageService.getAvailableUploadDirectoryDetails(),
         });
       },
       { prefix: '/api/ui' }

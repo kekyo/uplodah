@@ -37,9 +37,11 @@ describe('config-loader', () => {
         maxUploadSizeMb: 250,
         storage: {
           '/incoming': {
+            description: 'Incoming artifacts',
             expireSeconds: 60,
           },
           '/readonly': {
+            description: 'Read-only archive',
             readonly: true,
           },
         },
@@ -56,9 +58,11 @@ describe('config-loader', () => {
       maxUploadSizeMb: 250,
       storage: {
         '/incoming': {
+          description: 'Incoming artifacts',
           expireSeconds: 60,
         },
         '/readonly': {
+          description: 'Read-only archive',
           readonly: true,
         },
       },
@@ -94,6 +98,7 @@ describe('config-loader', () => {
       JSON.stringify({
         storage: {
           '/incoming': {
+            description: 'Incoming artifacts',
             expireSeconds: 30,
           },
           '/readonly': {
@@ -102,6 +107,7 @@ describe('config-loader', () => {
           incoming: {},
           '/bad/../path': {},
           '/invalid-fields': {
+            description: 123,
             readonly: 'yes',
             expireSeconds: 0,
           },
@@ -113,6 +119,7 @@ describe('config-loader', () => {
 
     expect(config.storage).toEqual({
       '/incoming': {
+        description: 'Incoming artifacts',
         expireSeconds: 30,
       },
       '/readonly': {

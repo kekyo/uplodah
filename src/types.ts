@@ -43,6 +43,10 @@ export type AuthMode = 'none' | 'publish' | 'full';
  * Virtual storage rule for an upload directory
  */
 export interface StorageRule {
+  /**
+   * Human-readable description shown in the UI for this virtual directory.
+   */
+  description?: string;
   readonly?: boolean;
   expireSeconds?: number;
 }
@@ -51,6 +55,20 @@ export interface StorageRule {
  * Virtual storage rules keyed by public directory path
  */
 export type StorageConfig = Record<string, StorageRule>;
+
+/**
+ * Uploadable virtual directory metadata exposed to the UI.
+ */
+export interface StorageDirectoryDescriptor {
+  /**
+   * Public virtual directory path.
+   */
+  directoryPath: string;
+  /**
+   * Human-readable directory description.
+   */
+  description?: string;
+}
 
 /**
  * Server configuration

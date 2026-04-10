@@ -40,6 +40,7 @@ import {
 } from './utils/commandBuilder';
 import { apiFetch } from './utils/apiClient';
 import { messages } from '../generated/messages';
+import type { StorageDirectoryDescriptor } from '../types';
 
 export interface ServerConfig {
   realm: string;
@@ -64,6 +65,7 @@ export interface ServerConfig {
   } | null;
   availableLanguages?: string[];
   storageDirectories?: string[];
+  storageDirectoryDetails?: StorageDirectoryDescriptor[];
 }
 
 interface AppContentProps {

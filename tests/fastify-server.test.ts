@@ -96,6 +96,11 @@ describe('Fastify server basics', () => {
       expect(data).toHaveProperty('name', 'uplodah');
       expect(data).toHaveProperty('authMode', 'none');
       expect(data).toHaveProperty('storageDirectories', ['/']);
+      expect(data).toHaveProperty('storageDirectoryDetails', [
+        {
+          directoryPath: '/',
+        },
+      ]);
     } finally {
       await server.close();
     }
