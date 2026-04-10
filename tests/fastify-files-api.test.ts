@@ -244,4 +244,64 @@ describe('Fastify files and upload API', () => {
       await server.close();
     }
   }, 30000);
+
+  test('should upload, list, and download nested files under matching storage rules', async () => {
+    const server = await startServer('none', {
+      storage: {
+        '/runs': {},
+      },
+    });
+
+    try {
+      const nestedPath = 'runs/24224477918/attempt-1/foobar.txt';
+      const uploadResponse = await uploadFile(nestedPath, 'nested payload');
+      expect(uploadResponse.status).toBe(201);
+      const uploadData = await uploadResponse.json();
+      expect(uploadData.path).toBe(nestedPath);
+      expect(uploadData.directoryPath).toBe('/runs/24224477918/attempt-1');
+      expect(uploadData.fileName).toBe('foobar.txt');
+
+      expect(
+        await fs.readFile(
+          path.join(
+            testStorageDir,
+            'runs',
+            '24224477918',
+            'attempt-1',
+            'foobar.txt',
+            uploadData.uploadId,
+            'foobar.txt'
+          ),
+          'utf-8'
+        )
+      ).toBe('nested payload');
+
+      const listResponse = await fetch(
+        `http://localhost:${serverPort}/api/files?skip=0&take=20`
+      );
+      expect(listResponse.status).toBe(200);
+      const listData = await listResponse.json();
+      expect(listData.totalCount).toBe(1);
+      expect(listData.items[0].publicPath).toBe(nestedPath);
+      expect(listData.items[0].directoryPath).toBe(
+        '/runs/24224477918/attempt-1'
+      );
+      expect(listData.items[0].fileName).toBe('foobar.txt');
+      expect(listData.items[0].versions[0].uploadId).toBe(uploadData.uploadId);
+
+      const latestResponse = await fetch(
+        `http://localhost:${serverPort}/api/files/runs/24224477918/attempt-1/foobar.txt`
+      );
+      expect(latestResponse.status).toBe(200);
+      expect(await latestResponse.text()).toBe('nested payload');
+
+      const specificResponse = await fetch(
+        `http://localhost:${serverPort}/api/files/runs/24224477918/attempt-1/foobar.txt/${uploadData.uploadId}`
+      );
+      expect(specificResponse.status).toBe(200);
+      expect(await specificResponse.text()).toBe('nested payload');
+    } finally {
+      await server.close();
+    }
+  }, 30000);
 });

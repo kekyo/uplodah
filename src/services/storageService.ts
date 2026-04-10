@@ -415,12 +415,12 @@ export const createStorageService = (
       return;
     }
 
-    const exactRule = storageRules[normalizedPath.directoryPath];
-    if (!exactRule) {
+    const matchingRule = getMatchingRule(normalizedPath.directoryPath);
+    if (!matchingRule) {
       throw new Error('Upload directory is not defined in storage rules');
     }
 
-    if (exactRule.readonly === true) {
+    if (matchingRule.rule.readonly === true) {
       throw new Error('Upload directory is read-only');
     }
   };

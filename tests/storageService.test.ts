@@ -148,6 +148,76 @@ describe('storageService', () => {
     ]);
   });
 
+  it('should allow nested uploads under matching rule prefixes and honor more specific rules', async () => {
+    const service = createService({
+      storage: {
+        '/runs': {},
+        '/readonly': {
+          readonly: true,
+        },
+        '/readonly/incoming': {},
+      },
+    });
+    await service.initialize();
+
+    const nestedPath = 'runs/24224477918/attempt-1/foobar.txt';
+    const stored = await service.storeFile(nestedPath, Buffer.from('allowed'));
+
+    expect(stored.publicPath).toBe(nestedPath);
+    expect(stored.directoryPath).toBe('/runs/24224477918/attempt-1');
+    expect(stored.fileName).toBe('foobar.txt');
+    expect(
+      await fs.readFile(
+        path.join(
+          testDir,
+          'runs',
+          '24224477918',
+          'attempt-1',
+          'foobar.txt',
+          stored.uploadId,
+          'foobar.txt'
+        ),
+        'utf-8'
+      )
+    ).toBe('allowed');
+
+    const latest = await service.getLatestFileVersion(nestedPath);
+    expect(latest?.publicPath).toBe(nestedPath);
+    expect(latest?.directoryPath).toBe('/runs/24224477918/attempt-1');
+
+    const listResult = await service.listFiles(0, 20);
+    expect(listResult.totalCount).toBe(1);
+    expect(listResult.items[0].publicPath).toBe(nestedPath);
+    expect(listResult.items[0].directoryPath).toBe(
+      '/runs/24224477918/attempt-1'
+    );
+
+    await expect(
+      service.storeFile('readonly/deep/file.txt', Buffer.from('blocked'))
+    ).rejects.toThrow('Upload directory is read-only');
+
+    const reopenedPath = 'readonly/incoming/2026/file.txt';
+    const reopened = await service.storeFile(
+      reopenedPath,
+      Buffer.from('reopened')
+    );
+    expect(reopened.directoryPath).toBe('/readonly/incoming/2026');
+    expect(
+      await fs.readFile(
+        path.join(
+          testDir,
+          'readonly',
+          'incoming',
+          '2026',
+          'file.txt',
+          reopened.uploadId,
+          'file.txt'
+        ),
+        'utf-8'
+      )
+    ).toBe('reopened');
+  });
+
   it('should create unique uploadIds when the timestamp collides', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-04-08T10:11:12.345Z'));
