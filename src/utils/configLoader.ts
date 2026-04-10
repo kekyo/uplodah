@@ -86,6 +86,16 @@ const validateConfig = (
 
       const validatedRule: StorageConfig[string] = {};
 
+      if ('description' in rawRule) {
+        if (typeof rawRule.description === 'string') {
+          validatedRule.description = rawRule.description;
+        } else {
+          logger?.warn(
+            `Invalid description for "${directoryPath}" in config.json: expected string`
+          );
+        }
+      }
+
       if ('readonly' in rawRule) {
         if (typeof rawRule.readonly === 'boolean') {
           validatedRule.readonly = rawRule.readonly;

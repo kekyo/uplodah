@@ -9,7 +9,12 @@ import path from 'path';
 import dayjs from 'dayjs';
 import customParseFormat from 'dayjs/plugin/customParseFormat';
 import utc from 'dayjs/plugin/utc';
-import { Logger, ServerConfig, StorageRule } from '../types';
+import {
+  Logger,
+  ServerConfig,
+  StorageDirectoryDescriptor,
+  StorageRule,
+} from '../types';
 
 dayjs.extend(customParseFormat);
 dayjs.extend(utc);
@@ -106,6 +111,7 @@ export interface StoredFileListResult {
  */
 export interface StoredDirectoryInfo {
   directoryPath: string;
+  description?: string;
   readonly: boolean;
   fileGroupCount: number;
 }
@@ -122,6 +128,10 @@ export interface StorageService {
    * Get uploadable public directories.
    */
   readonly getAvailableUploadDirectories: () => string[];
+  /**
+   * Get uploadable public directories with UI metadata.
+   */
+  readonly getAvailableUploadDirectoryDetails: () => StorageDirectoryDescriptor[];
   /**
    * List configured virtual directories in display order with file-group counts.
    */
@@ -370,6 +380,36 @@ export const createStorageService = (
     }
     return Object.keys(storageRules);
   };
+
+  const createDirectoryDescriptionFields = (description?: string) =>
+    description !== undefined ? { description } : {};
+
+  const getAvailableUploadDirectoryDetails =
+    (): StorageDirectoryDescriptor[] => {
+      if (!storageRules) {
+        return [
+          {
+            directoryPath: '/',
+          },
+        ];
+      }
+
+      return Object.entries(storageRules)
+        .filter(([, rule]) => rule.readonly !== true)
+        .map(([directoryPath, rule]) => ({
+          directoryPath,
+          ...createDirectoryDescriptionFields(rule.description),
+        }))
+        .sort((left, right) => {
+          if (left.directoryPath === '/') {
+            return -1;
+          }
+          if (right.directoryPath === '/') {
+            return 1;
+          }
+          return left.directoryPath.localeCompare(right.directoryPath);
+        });
+    };
 
   const ensureDirectoryDefined = (directoryPath: string) => {
     if (!storageRules) {
@@ -888,23 +928,12 @@ export const createStorageService = (
     },
 
     getAvailableUploadDirectories: () => {
-      if (!storageRules) {
-        return ['/'];
-      }
-
-      return Object.entries(storageRules)
-        .filter(([, rule]) => rule.readonly !== true)
-        .map(([directoryPath]) => directoryPath)
-        .sort((left, right) => {
-          if (left === '/') {
-            return -1;
-          }
-          if (right === '/') {
-            return 1;
-          }
-          return left.localeCompare(right);
-        });
+      return getAvailableUploadDirectoryDetails().map(
+        (directory) => directory.directoryPath
+      );
     },
+
+    getAvailableUploadDirectoryDetails,
 
     listBrowseDirectories: async () => {
       const groups = await scanAllGroupSummaries();
@@ -919,6 +948,9 @@ export const createStorageService = (
 
       return getConfiguredDirectoryPaths().map((directoryPath) => ({
         directoryPath,
+        ...createDirectoryDescriptionFields(
+          storageRules?.[directoryPath]?.description
+        ),
         readonly: storageRules?.[directoryPath]?.readonly === true,
         fileGroupCount: fileGroupCounts.get(directoryPath) ?? 0,
       }));

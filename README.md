@@ -310,12 +310,17 @@ Here is an example `storage` section in `config.json`:
 ```json
 {
   "port": 5968,
-  "storage": {     // Enabled virtual directories
-    "/": {},       // (Root directory)
-    "/bropdox": {  // "/bropdox"
+  "storage": {
+    // Enabled virtual directories
+    "/": {}, // (Root directory)
+    "/bropdox": {
+      // "/bropdox"
+      "description": "Temporary sharing area",
       "expireSeconds": 86400 // Expire after 24 hours
     },
-    "/archive": {  // "/archive"
+    "/archive": {
+      // "/archive"
+      "description": "Long-term archive",
       "readonly": true
     },
     "/archive/incoming": {} // "/archive/incoming"
@@ -334,6 +339,7 @@ Rule behavior:
 
 - Keys must always start with `/`
 - Backslashes and relative path segments such as `.` and `..` are not allowed
+- `description` is shown in the UI directory list and upload-directory selector
 - The most specific matching directory rule is applied
 - Once `storage` is defined, uploads outside configured virtual directory subtrees are rejected
   To allow uploads at the root directory and its descendants as well, include `/` explicitly as shown above

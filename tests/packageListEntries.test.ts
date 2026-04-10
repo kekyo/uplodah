@@ -44,6 +44,7 @@ const sampleFiles = [
 const sampleSections = [
   {
     directoryPath: '/',
+    description: 'Shared packages',
     fileGroupCount: sampleFiles.length,
     files: sampleFiles,
   },
@@ -125,6 +126,7 @@ describe('package list entries', () => {
 
     expect(html).toContain('Root (/)');
     expect(html).toContain('1 file groups');
+    expect(html).toContain('Shared packages');
     expect(html).toContain('dockit-0.5.0.zip');
     expect(html).toContain('Latest upload:');
     expect(html).toContain('(2026/04/07 14:56:59 UTC)');

@@ -69,8 +69,11 @@ describe('storageService', () => {
   it('should filter readonly directories from available uploads and enforce rules', async () => {
     const service = createService({
       storage: {
-        '/incoming': {},
+        '/incoming': {
+          description: 'Incoming artifacts',
+        },
         '/readonly': {
+          description: 'Read-only archive',
           readonly: true,
         },
       },
@@ -78,14 +81,22 @@ describe('storageService', () => {
     await service.initialize();
 
     expect(service.getAvailableUploadDirectories()).toEqual(['/incoming']);
+    expect(service.getAvailableUploadDirectoryDetails()).toEqual([
+      {
+        directoryPath: '/incoming',
+        description: 'Incoming artifacts',
+      },
+    ]);
     expect(await service.listBrowseDirectories()).toEqual([
       {
         directoryPath: '/incoming',
+        description: 'Incoming artifacts',
         readonly: false,
         fileGroupCount: 0,
       },
       {
         directoryPath: '/readonly',
+        description: 'Read-only archive',
         readonly: true,
         fileGroupCount: 0,
       },
@@ -118,11 +129,13 @@ describe('storageService', () => {
     expect(await service.listBrowseDirectories()).toEqual([
       {
         directoryPath: '/incoming',
+        description: 'Incoming artifacts',
         readonly: false,
         fileGroupCount: 1,
       },
       {
         directoryPath: '/readonly',
+        description: 'Read-only archive',
         readonly: true,
         fileGroupCount: 0,
       },

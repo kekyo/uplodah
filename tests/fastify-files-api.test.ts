@@ -209,7 +209,9 @@ describe('Fastify files and upload API', () => {
   test('should enforce storage rules and expose writable directories', async () => {
     const server = await startServer('none', {
       storage: {
-        '/incoming': {},
+        '/incoming': {
+          description: 'Incoming artifacts',
+        },
         '/readonly': {
           readonly: true,
         },
@@ -223,6 +225,12 @@ describe('Fastify files and upload API', () => {
       expect(configResponse.status).toBe(200);
       const configData = await configResponse.json();
       expect(configData.storageDirectories).toEqual(['/incoming']);
+      expect(configData.storageDirectoryDetails).toEqual([
+        {
+          directoryPath: '/incoming',
+          description: 'Incoming artifacts',
+        },
+      ]);
 
       const rootUpload = await uploadFile('root.txt', 'blocked');
       expect(rootUpload.status).toBe(400);

@@ -4,7 +4,7 @@
 // https://github.com/kekyo/uplodah
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { Logger } from '../../../types';
+import { Logger, StorageDirectoryDescriptor } from '../../../types';
 import { UserService } from '../../../services/userService';
 import { SessionService } from '../../../services/sessionService';
 import { AuthService } from '../../../services/authService';
@@ -42,6 +42,7 @@ export interface UiRoutesConfig {
     isHttps: boolean;
   };
   storageDirectories: string[];
+  storageDirectoryDetails: StorageDirectoryDescriptor[];
 }
 
 /**
@@ -76,6 +77,7 @@ export interface ConfigResponse {
     authenticated: boolean;
   } | null;
   storageDirectories: string[];
+  storageDirectoryDetails: StorageDirectoryDescriptor[];
 }
 
 /**
@@ -250,6 +252,7 @@ export const registerUiRoutes = async (
     realm,
     serverUrl,
     storageDirectories,
+    storageDirectoryDetails,
   } = config;
 
   // Create session-only auth middleware
@@ -338,6 +341,7 @@ export const registerUiRoutes = async (
           },
           currentUser: currentUser,
           storageDirectories,
+          storageDirectoryDetails,
         };
 
         return reply.send(response);

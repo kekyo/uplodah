@@ -56,6 +56,7 @@ interface FileGroupSummary {
 
 interface DirectorySummary {
   directoryPath: string;
+  description?: string;
   readonly: boolean;
   fileGroupCount: number;
 }
@@ -101,6 +102,7 @@ interface PackageListProps {
 
 interface DirectorySection {
   directoryPath: string;
+  description?: string;
   fileGroupCount: number;
   files: FileGroupSummary[];
 }
@@ -205,7 +207,8 @@ export const formatUploadedAt = (
 const buildDirectorySections = (
   files: readonly FileGroupSummary[],
   directoryOrder: readonly string[],
-  explicitCountsByDirectory: ReadonlyMap<string, number> | undefined
+  explicitCountsByDirectory: ReadonlyMap<string, number> | undefined,
+  descriptionsByDirectory: ReadonlyMap<string, string | undefined> | undefined
 ): DirectorySection[] => {
   const sections = new Map<string, FileGroupSummary[]>();
 
@@ -231,6 +234,7 @@ const buildDirectorySections = (
 
       return {
         directoryPath,
+        description: descriptionsByDirectory?.get(directoryPath),
         fileGroupCount,
         files: sectionFiles,
       };
@@ -280,6 +284,11 @@ export const PackageListEntries = ({
               })}
             />
           </Box>
+          {section.description ? (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+              {section.description}
+            </Typography>
+          ) : null}
           <Stack spacing={1.25} useFlexGap>
             {section.files.map((file) => {
               const FileGroupIcon = resolveFileGroupIconComponent(
@@ -837,14 +846,31 @@ const PackageList = forwardRef<PackageListRef, PackageListProps>(
         ),
       [directorySummaries]
     );
+    const browseDescriptions = useMemo(
+      () =>
+        new Map(
+          directorySummaries.map((directory) => [
+            directory.directoryPath,
+            directory.description,
+          ])
+        ),
+      [directorySummaries]
+    );
     const sections = useMemo(
       () =>
         buildDirectorySections(
           activeFiles,
           directoryOrder,
-          isSearchMode ? undefined : explicitBrowseCounts
+          isSearchMode ? undefined : explicitBrowseCounts,
+          browseDescriptions
         ),
-      [activeFiles, directoryOrder, explicitBrowseCounts, isSearchMode]
+      [
+        activeFiles,
+        directoryOrder,
+        explicitBrowseCounts,
+        browseDescriptions,
+        isSearchMode,
+      ]
     );
 
     const activeError = isSearchMode ? searchError : browseError;

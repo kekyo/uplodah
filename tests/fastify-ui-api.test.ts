@@ -98,6 +98,11 @@ describe('Fastify UI backend API', () => {
       expect(data).toHaveProperty('authMode', 'none');
       expect(data).toHaveProperty('currentUser', null);
       expect(data).toHaveProperty('storageDirectories', ['/']);
+      expect(data).toHaveProperty('storageDirectoryDetails', [
+        {
+          directoryPath: '/',
+        },
+      ]);
     } finally {
       await server.close();
     }
@@ -146,7 +151,9 @@ describe('Fastify UI backend API', () => {
         passwordStrengthCheck: false,
         storage: {
           '/': {},
-          '/tmp': {},
+          '/tmp': {
+            description: 'Temporary artifacts',
+          },
         },
       },
       logger
@@ -179,6 +186,7 @@ describe('Fastify UI backend API', () => {
           },
           {
             directoryPath: '/tmp',
+            description: 'Temporary artifacts',
             readonly: false,
             fileGroupCount: 1,
           },
