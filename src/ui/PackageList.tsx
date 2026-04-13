@@ -427,7 +427,7 @@ export const PackageListEntries = ({
   const getMessage = useTypedMessage();
 
   return (
-    <Stack spacing={2.5}>
+    <Stack spacing={2.5} useFlexGap>
       {sections.map((section) => (
         <Accordion
           key={section.directoryPath}

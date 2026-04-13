@@ -52,6 +52,26 @@ const sampleSections = [
   },
 ];
 
+const siblingSectionFile = {
+  ...sampleFiles[0],
+  publicPath: 'runs/dockit-0.5.0.zip',
+  displayPath: '/runs/dockit-0.5.0.zip',
+  directoryPath: '/runs',
+  browseDirectoryPath: '/runs',
+  browseRelativePath: 'dockit-0.5.0.zip',
+  latestDownloadPath: '/api/files/runs/dockit-0.5.0.zip',
+};
+
+const sampleSectionsWithSiblingDirectory = [
+  ...sampleSections,
+  {
+    directoryPath: '/runs',
+    description: 'Workflow artifacts',
+    fileGroupCount: 1,
+    files: [siblingSectionFile],
+  },
+];
+
 const renderEntries = ({
   expandedDirectoryPanels,
   expandedPanels,
@@ -222,6 +242,23 @@ describe('package list entries', () => {
     expect(html).toContain(
       '24224477918/attempt-2/polyfit-manuals/RJK.PolyFit.Manuals.zip'
     );
+  });
+
+  test('keeps a stable vertical gap between directory accordions when one expands', () => {
+    const html = renderEntries({
+      expandedDirectoryPanels: new Set(['/']),
+      expandedPanels: new Set(),
+      sections: sampleSectionsWithSiblingDirectory,
+      versionsByPublicPath: {
+        'dockit-0.5.0.zip': sampleFiles[0].versions,
+        [siblingSectionFile.publicPath]: siblingSectionFile.versions,
+      },
+    });
+
+    expect(html).toContain('Root (/)');
+    expect(html).toContain('/runs');
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain('gap:20px');
   });
 
   test('renders expanded group summary and revisions', () => {
