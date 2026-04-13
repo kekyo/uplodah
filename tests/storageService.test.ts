@@ -226,7 +226,7 @@ describe('storageService', () => {
     ]);
   });
 
-  it('should allow nested uploads under matching rule prefixes and honor more specific rules', async () => {
+  it('should resolve nested uploads under the configured virtual directory once', async () => {
     const service = createService({
       storage: {
         '/runs': {},
@@ -571,6 +571,44 @@ describe('storageService', () => {
         latestDownloadPath: '/api/files/report.txt',
       },
     ]);
+  });
+
+  it('should ignore stored file groups outside configured virtual directories', async () => {
+    const service = createService({
+      storage: {
+        '/incoming': {},
+      },
+    });
+    await service.initialize();
+
+    const strayVersionDirectoryPath = path.join(
+      testDir,
+      'other',
+      'ghost.txt',
+      '20260408_101112_345'
+    );
+    await fs.mkdir(strayVersionDirectoryPath, { recursive: true });
+    await fs.writeFile(
+      path.join(strayVersionDirectoryPath, 'metadata.json'),
+      '{}'
+    );
+    await fs.writeFile(path.join(strayVersionDirectoryPath, 'ghost.txt'), 'x');
+
+    const kept = await service.storeFile(
+      'incoming/kept.txt',
+      Buffer.from('kept')
+    );
+
+    const listResult = await service.listFiles(0, 20);
+    expect(listResult.totalCount).toBe(1);
+    expect(listResult.items.map((item) => item.publicPath)).toEqual([
+      kept.publicPath,
+    ]);
+    expect(await service.searchFileGroups('other')).toEqual([]);
+    expect(
+      await service.getLatestFileVersion('other/ghost.txt')
+    ).toBeUndefined();
+    expect(await service.listFileGroupVersions('other/ghost.txt')).toEqual([]);
   });
 
   it('should resolve virtual directories by path segments instead of string prefixes', async () => {

@@ -28,6 +28,9 @@ export interface NormalizedPublicPath {
   directoryPath: string;
   fileName: string;
   segments: string[];
+  virtualDirectoryPath: string;
+  relativePath: string;
+  storageRule?: StorageRule;
 }
 
 /**
@@ -238,9 +241,21 @@ interface InternalStoredFileGroupSummary {
   latestVersion: InternalStoredFileVersion;
 }
 
-interface MatchingRule {
+interface ResolvedVirtualDirectory {
+  virtualDirectoryPath: string;
+  relativeSegments: string[];
+  rule?: StorageRule;
+}
+
+interface ConfiguredStorageDirectory {
   directoryPath: string;
+  segments: string[];
   rule: StorageRule;
+}
+
+interface InternalStoredFileGroupInfo extends StoredFileGroupInfo {
+  browseDirectoryPath: string;
+  browseRelativePath: string;
 }
 
 /**
@@ -365,17 +380,9 @@ export const createStorageService = (
       directoryPath,
       fileName,
       segments,
+      virtualDirectoryPath: '/',
+      relativePath: segments.join('/'),
     };
-  };
-
-  const normalizePublicPath = (rawPublicPath: string): NormalizedPublicPath => {
-    const normalizedPath = normalizeStoredPublicPath(rawPublicPath);
-
-    if (!hasStorageRules && normalizedPath.segments.length !== 1) {
-      throw new Error('Subdirectories require storage rules to be configured');
-    }
-
-    return normalizedPath;
   };
 
   const normalizeDirectoryPath = (rawDirectoryPath: string): string => {
@@ -460,23 +467,97 @@ export const createStorageService = (
       ? []
       : directoryPath.split('/').filter((segment) => segment.length > 0);
 
-  const isDirectoryWithinRule = (
-    directoryPath: string,
-    candidatePath: string
-  ): boolean => {
-    if (candidatePath === '/') {
-      return true;
+  const configuredStorageDirectories: ConfiguredStorageDirectory[] =
+    storageRules
+      ? Object.entries(storageRules)
+          .map(([directoryPath, rule]) => ({
+            directoryPath,
+            segments: splitDirectoryPathSegments(directoryPath),
+            rule,
+          }))
+          .sort(
+            (left, right) =>
+              right.segments.length - left.segments.length ||
+              left.directoryPath.localeCompare(right.directoryPath)
+          )
+      : [];
+
+  const createResolvedPublicPath = (
+    normalizedPath: NormalizedPublicPath,
+    resolution: ResolvedVirtualDirectory
+  ): NormalizedPublicPath => ({
+    ...normalizedPath,
+    virtualDirectoryPath: resolution.virtualDirectoryPath,
+    relativePath: resolution.relativeSegments.join('/'),
+    storageRule: resolution.rule,
+  });
+
+  const resolveConfiguredVirtualDirectory = (
+    segments: string[]
+  ): ResolvedVirtualDirectory | undefined => {
+    if (!storageRules) {
+      return segments.length === 1
+        ? {
+            virtualDirectoryPath: '/',
+            relativeSegments: segments,
+          }
+        : undefined;
     }
 
-    const directorySegments = splitDirectoryPathSegments(directoryPath);
-    const candidateSegments = splitDirectoryPathSegments(candidatePath);
-    if (candidateSegments.length > directorySegments.length) {
-      return false;
+    for (const configuredDirectory of configuredStorageDirectories) {
+      if (configuredDirectory.segments.length >= segments.length) {
+        continue;
+      }
+      if (
+        configuredDirectory.segments.every(
+          (segment, index) => segments[index] === segment
+        )
+      ) {
+        return {
+          virtualDirectoryPath: configuredDirectory.directoryPath,
+          relativeSegments: segments.slice(configuredDirectory.segments.length),
+          rule: configuredDirectory.rule,
+        };
+      }
     }
 
-    return candidateSegments.every(
-      (candidateSegment, index) => directorySegments[index] === candidateSegment
+    return undefined;
+  };
+
+  const resolveReadablePublicPath = (
+    rawPublicPath: string
+  ): NormalizedPublicPath | undefined => {
+    const normalizedPath = normalizeStoredPublicPath(rawPublicPath);
+    const resolution = resolveConfiguredVirtualDirectory(
+      normalizedPath.segments
     );
+    return resolution
+      ? createResolvedPublicPath(normalizedPath, resolution)
+      : undefined;
+  };
+
+  const resolveUploadPublicPath = (
+    rawPublicPath: string
+  ): NormalizedPublicPath => {
+    const normalizedPath = normalizeStoredPublicPath(rawPublicPath);
+    const resolution = resolveConfiguredVirtualDirectory(
+      normalizedPath.segments
+    );
+
+    if (!resolution) {
+      if (!hasStorageRules) {
+        throw new Error(
+          'Subdirectories require storage rules to be configured'
+        );
+      }
+      throw new Error('Upload directory is not defined in storage rules');
+    }
+
+    if (resolution.rule?.readonly === true) {
+      throw new Error('Upload directory is read-only');
+    }
+
+    return createResolvedPublicPath(normalizedPath, resolution);
   };
 
   const getAvailableUploadDirectoryDetails =
@@ -519,45 +600,6 @@ export const createStorageService = (
     }
   };
 
-  const getMatchingRule = (directoryPath: string): MatchingRule | undefined => {
-    if (!storageRules) {
-      return undefined;
-    }
-
-    const matches = Object.entries(storageRules)
-      .filter(([candidatePath]) =>
-        isDirectoryWithinRule(directoryPath, candidatePath)
-      )
-      .sort(
-        (left, right) =>
-          splitDirectoryPathSegments(right[0]).length -
-          splitDirectoryPathSegments(left[0]).length
-      );
-
-    const matched = matches[0];
-    return matched
-      ? {
-          directoryPath: matched[0],
-          rule: matched[1],
-        }
-      : undefined;
-  };
-
-  const ensureUploadAllowed = (normalizedPath: NormalizedPublicPath) => {
-    if (!storageRules) {
-      return;
-    }
-
-    const matchingRule = getMatchingRule(normalizedPath.directoryPath);
-    if (!matchingRule) {
-      throw new Error('Upload directory is not defined in storage rules');
-    }
-
-    if (matchingRule.rule.readonly === true) {
-      throw new Error('Upload directory is read-only');
-    }
-  };
-
   const getGroupDirectoryPath = (
     normalizedPath: NormalizedPublicPath
   ): string => path.join(storageRoot, ...normalizedPath.segments);
@@ -595,16 +637,11 @@ export const createStorageService = (
   };
 
   const isExpired = (
-    directoryPath: string,
+    expireSeconds: number | undefined,
     uploadedAtMs: number,
     nowMs: number
-  ): boolean => {
-    const matchingRule = getMatchingRule(directoryPath);
-    if (!matchingRule?.rule.expireSeconds) {
-      return false;
-    }
-    return uploadedAtMs + matchingRule.rule.expireSeconds * 1000 <= nowMs;
-  };
+  ): boolean =>
+    expireSeconds !== undefined && uploadedAtMs + expireSeconds * 1000 <= nowMs;
 
   const createVersionInfo = (
     normalizedPath: NormalizedPublicPath,
@@ -617,59 +654,20 @@ export const createStorageService = (
     versionDownloadPath: `/api/files/${encodePublicPath(normalizedPath)}/${encodeURIComponent(version.uploadId)}`,
   });
 
-  const resolveBrowseDirectoryPath = (groupDirectoryPath: string): string => {
-    const matchingRule = getMatchingRule(groupDirectoryPath);
-    if (matchingRule) {
-      return matchingRule.directoryPath;
-    }
-    return hasStorageRules ? groupDirectoryPath : '/';
-  };
-
-  const buildBrowseRelativePath = (
-    publicPath: string,
-    displayPath: string,
-    browseDirectoryPath: string
-  ): string => {
-    const publicPathSegments = publicPath
-      .split('/')
-      .filter((segment) => segment.length > 0);
-    const browseSegments = splitDirectoryPathSegments(browseDirectoryPath);
-    if (
-      browseSegments.length <= publicPathSegments.length &&
-      browseSegments.every(
-        (browseSegment, index) => publicPathSegments[index] === browseSegment
-      )
-    ) {
-      return publicPathSegments.slice(browseSegments.length).join('/');
-    }
-
-    return displayPath;
-  };
-
   const createGroupSummaryInfo = (
     normalizedPath: NormalizedPublicPath,
     latestVersion: InternalStoredFileVersion
-  ): StoredFileGroupSummaryInfo => {
-    const browseDirectoryPath = resolveBrowseDirectoryPath(
-      normalizedPath.directoryPath
-    );
-
-    return {
-      publicPath: normalizedPath.publicPath,
-      displayPath: normalizedPath.displayPath,
-      directoryPath: normalizedPath.directoryPath,
-      browseDirectoryPath,
-      browseRelativePath: buildBrowseRelativePath(
-        normalizedPath.publicPath,
-        normalizedPath.displayPath,
-        browseDirectoryPath
-      ),
-      fileName: normalizedPath.fileName,
-      latestUploadId: latestVersion.uploadId,
-      latestUploadedAt: latestVersion.uploadedAt,
-      latestDownloadPath: `/api/files/${encodePublicPath(normalizedPath)}`,
-    };
-  };
+  ): StoredFileGroupSummaryInfo => ({
+    publicPath: normalizedPath.publicPath,
+    displayPath: normalizedPath.displayPath,
+    directoryPath: normalizedPath.directoryPath,
+    browseDirectoryPath: normalizedPath.virtualDirectoryPath,
+    browseRelativePath: normalizedPath.relativePath,
+    fileName: normalizedPath.fileName,
+    latestUploadId: latestVersion.uploadId,
+    latestUploadedAt: latestVersion.uploadedAt,
+    latestDownloadPath: `/api/files/${encodePublicPath(normalizedPath)}`,
+  });
 
   const createStoredVersion = (
     normalizedPath: NormalizedPublicPath,
@@ -703,7 +701,11 @@ export const createStorageService = (
     }
 
     if (
-      isExpired(normalizedPath.directoryPath, uploadIdParts.timestamp, nowMs)
+      isExpired(
+        normalizedPath.storageRule?.expireSeconds,
+        uploadIdParts.timestamp,
+        nowMs
+      )
     ) {
       logger.info(
         `Removing expired upload: ${normalizedPath.displayPath} (${uploadId})`
@@ -817,12 +819,14 @@ export const createStorageService = (
   const createGroupInfo = (
     normalizedPath: NormalizedPublicPath,
     versions: InternalStoredFileVersion[]
-  ): StoredFileGroupInfo => {
+  ): InternalStoredFileGroupInfo => {
     const latestVersion = versions[0]!;
     return {
       publicPath: normalizedPath.publicPath,
       displayPath: normalizedPath.displayPath,
       directoryPath: normalizedPath.directoryPath,
+      browseDirectoryPath: normalizedPath.virtualDirectoryPath,
+      browseRelativePath: normalizedPath.relativePath,
       fileName: normalizedPath.fileName,
       latestUploadId: latestVersion.uploadId,
       latestUploadedAt: latestVersion.uploadedAt,
@@ -833,30 +837,37 @@ export const createStorageService = (
     };
   };
 
+  const toStoredFileGroupInfo = (
+    group: InternalStoredFileGroupInfo
+  ): StoredFileGroupInfo => ({
+    publicPath: group.publicPath,
+    displayPath: group.displayPath,
+    directoryPath: group.directoryPath,
+    fileName: group.fileName,
+    latestUploadId: group.latestUploadId,
+    latestUploadedAt: group.latestUploadedAt,
+    latestDownloadPath: group.latestDownloadPath,
+    versions: group.versions,
+  });
+
   const toGroupSummaryInfo = (
-    group: StoredFileGroupInfo
-  ): StoredFileGroupSummaryInfo => {
-    const browseDirectoryPath = resolveBrowseDirectoryPath(group.directoryPath);
+    group: InternalStoredFileGroupInfo
+  ): StoredFileGroupSummaryInfo => ({
+    publicPath: group.publicPath,
+    displayPath: group.displayPath,
+    directoryPath: group.directoryPath,
+    browseDirectoryPath: group.browseDirectoryPath,
+    browseRelativePath: group.browseRelativePath,
+    fileName: group.fileName,
+    latestUploadId: group.latestUploadId,
+    latestUploadedAt: group.latestUploadedAt,
+    latestDownloadPath: group.latestDownloadPath,
+  });
 
-    return {
-      publicPath: group.publicPath,
-      displayPath: group.displayPath,
-      directoryPath: group.directoryPath,
-      browseDirectoryPath,
-      browseRelativePath: buildBrowseRelativePath(
-        group.publicPath,
-        group.displayPath,
-        browseDirectoryPath
-      ),
-      fileName: group.fileName,
-      latestUploadId: group.latestUploadId,
-      latestUploadedAt: group.latestUploadedAt,
-      latestDownloadPath: group.latestDownloadPath,
-    };
-  };
-
-  const scanLegacyStorage = async (): Promise<StoredFileGroupInfo[]> => {
-    const groups: StoredFileGroupInfo[] = [];
+  const scanLegacyStorage = async (): Promise<
+    InternalStoredFileGroupInfo[]
+  > => {
+    const groups: InternalStoredFileGroupInfo[] = [];
     const entries = await safeReadDirectory(storageRoot);
 
     for (const entry of entries) {
@@ -864,7 +875,10 @@ export const createStorageService = (
         continue;
       }
 
-      const normalizedPath = normalizePublicPath(entry.name);
+      const normalizedPath = resolveReadablePublicPath(entry.name);
+      if (!normalizedPath) {
+        continue;
+      }
       const groupDirectoryPath = path.join(storageRoot, entry.name);
       const versions = await scanGroupDirectory(
         normalizedPath,
@@ -889,7 +903,10 @@ export const createStorageService = (
         continue;
       }
 
-      const normalizedPath = normalizePublicPath(entry.name);
+      const normalizedPath = resolveReadablePublicPath(entry.name);
+      if (!normalizedPath) {
+        continue;
+      }
       const groupDirectoryPath = path.join(storageRoot, entry.name);
       const summary = await scanGroupDirectorySummary(
         normalizedPath,
@@ -911,7 +928,11 @@ export const createStorageService = (
   ): Promise<boolean> => {
     let normalizedPath: NormalizedPublicPath;
     try {
-      normalizedPath = normalizeStoredPublicPath(currentSegments.join('/'));
+      const resolvedPath = resolveReadablePublicPath(currentSegments.join('/'));
+      if (!resolvedPath) {
+        return false;
+      }
+      normalizedPath = resolvedPath;
     } catch {
       return false;
     }
@@ -945,8 +966,8 @@ export const createStorageService = (
   const scanTreeStorage = async (
     currentPath: string,
     currentSegments: string[]
-  ): Promise<StoredFileGroupInfo[]> => {
-    const groups: StoredFileGroupInfo[] = [];
+  ): Promise<InternalStoredFileGroupInfo[]> => {
+    const groups: InternalStoredFileGroupInfo[] = [];
     const entries = await safeReadDirectory(currentPath);
 
     for (const entry of entries) {
@@ -958,9 +979,12 @@ export const createStorageService = (
       const nextSegments = [...currentSegments, entry.name];
 
       if (await looksLikeGroupDirectory(nextPath, nextSegments)) {
-        const normalizedPath = normalizeStoredPublicPath(
+        const normalizedPath = resolveReadablePublicPath(
           nextSegments.join('/')
         );
+        if (!normalizedPath) {
+          continue;
+        }
         const versions = await scanGroupDirectory(normalizedPath, nextPath);
         if (versions.length > 0) {
           groups.push(createGroupInfo(normalizedPath, versions));
@@ -989,9 +1013,12 @@ export const createStorageService = (
       const nextSegments = [...currentSegments, entry.name];
 
       if (await looksLikeGroupDirectory(nextPath, nextSegments)) {
-        const normalizedPath = normalizeStoredPublicPath(
+        const normalizedPath = resolveReadablePublicPath(
           nextSegments.join('/')
         );
+        if (!normalizedPath) {
+          continue;
+        }
         const summary = await scanGroupDirectorySummary(
           normalizedPath,
           nextPath
@@ -1014,7 +1041,7 @@ export const createStorageService = (
     return groups;
   };
 
-  const scanAllGroups = async (): Promise<StoredFileGroupInfo[]> => {
+  const scanAllGroups = async (): Promise<InternalStoredFileGroupInfo[]> => {
     const groups = hasStorageRules
       ? await scanTreeStorage(storageRoot, [])
       : await scanLegacyStorage();
@@ -1042,7 +1069,10 @@ export const createStorageService = (
     rawPublicPath: string,
     uploadId: string | undefined
   ): Promise<StoredFileVersion | undefined> => {
-    const normalizedPath = normalizePublicPath(rawPublicPath);
+    const normalizedPath = resolveReadablePublicPath(rawPublicPath);
+    if (!normalizedPath) {
+      return undefined;
+    }
     const groupDirectoryPath = getGroupDirectoryPath(normalizedPath);
     const versions = await scanGroupDirectory(
       normalizedPath,
@@ -1094,12 +1124,9 @@ export const createStorageService = (
       const fileGroupCounts = new Map<string, number>();
 
       groups.forEach((group) => {
-        const browseDirectoryPath = resolveBrowseDirectoryPath(
-          group.directoryPath
-        );
         fileGroupCounts.set(
-          browseDirectoryPath,
-          (fileGroupCounts.get(browseDirectoryPath) ?? 0) + 1
+          group.browseDirectoryPath,
+          (fileGroupCounts.get(group.browseDirectoryPath) ?? 0) + 1
         );
       });
 
@@ -1124,7 +1151,10 @@ export const createStorageService = (
     },
 
     listFileGroupVersions: async (rawPublicPath: string) => {
-      const normalizedPath = normalizePublicPath(rawPublicPath);
+      const normalizedPath = resolveReadablePublicPath(rawPublicPath);
+      if (!normalizedPath) {
+        return [];
+      }
       const groupDirectoryPath = getGroupDirectoryPath(normalizedPath);
       const versions = await scanGroupDirectory(
         normalizedPath,
@@ -1178,7 +1208,9 @@ export const createStorageService = (
 
       return {
         totalCount: groups.length,
-        items: groups.slice(safeSkip, safeSkip + safeTake),
+        items: groups
+          .slice(safeSkip, safeSkip + safeTake)
+          .map((group) => toStoredFileGroupInfo(group)),
       };
     },
 
@@ -1187,8 +1219,7 @@ export const createStorageService = (
       fileContent: Buffer,
       metadata?: StoredUploadMetadata
     ) => {
-      const normalizedPath = normalizePublicPath(rawPublicPath);
-      ensureUploadAllowed(normalizedPath);
+      const normalizedPath = resolveUploadPublicPath(rawPublicPath);
 
       const groupDirectoryPath = getGroupDirectoryPath(normalizedPath);
       const uploadId = await createUploadId(normalizedPath);

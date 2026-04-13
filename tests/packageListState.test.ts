@@ -151,7 +151,7 @@ describe('package list panel state helpers', () => {
     ]);
   });
 
-  test('groups search results under the most specific matching virtual directory', () => {
+  test('groups search results under the resolved virtual directory', () => {
     const nestedFile = {
       publicPath:
         'runs/24224477918/attempt-2/polyfit-manuals/RJK.PolyFit.Manuals.zip',
