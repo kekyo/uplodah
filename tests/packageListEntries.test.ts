@@ -33,6 +33,8 @@ const sampleFiles = [
         uploadedAt: '2026-04-07T14:56:59.000Z',
         size: 42086,
         versionDownloadPath: '/api/files/dockit-0.5.0.zip/20260407_145659_216',
+        uploadedBy: 'dockit-bot',
+        tags: ['nightly', 'zip'],
       },
       {
         uploadId: '20260407_145157_213',
@@ -305,8 +307,13 @@ describe('package list entries', () => {
     expect(html).toContain('Total size: 82.2 KB');
     expect(html).toContain('Revisions (2)');
     expect(html).toContain('(2026/04/07 14:51:57 UTC)');
-    expect(html).toContain('Upload ID: 20260407_145157_213');
-    expect(html).toContain('Size: 41.1 KB');
+    expect(html).toContain('Upload ID: 20260407_145157_213 Size: 41.1 KB');
+    expect(html).toContain('Upload: dockit-bot');
+    expect(html).toContain('Tags:');
+    expect(html).toContain('nightly');
+    expect(html).toContain('zip');
+    expect(html.match(/Upload:/g)?.length).toBe(1);
+    expect(html.match(/Tags:/g)?.length).toBe(1);
     expect(html).toContain('Download');
   });
 

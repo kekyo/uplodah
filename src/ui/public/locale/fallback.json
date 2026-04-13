@@ -29,6 +29,8 @@
   "SELECT_UPLOAD_FILES": "Select files to upload:",
   "NO_UPLOAD_DIRECTORIES": "No writable upload directories are configured.",
   "UPLOAD_DIRECTORY": "Upload directory",
+  "UPLOAD_TAGS": "Upload tags",
+  "UPLOAD_TAGS_HELPER": "Separate tags with spaces, commas, or semicolons",
 
   "PLEASE_SIGN_IN": "Please sign in to continue",
   "REMEMBER_ME_DAYS": "Remember me for 7 days",
@@ -107,6 +109,9 @@
   "REVISIONS_HEADER": "Revisions ({count:number})",
   "UPLOAD_ID_LABEL": "Upload ID: {uploadId}",
   "FILE_SIZE_LABEL": "Size: {size}",
+  "VERSION_DETAILS_LABEL": "Upload ID: {uploadId} Size: {size}",
+  "UPLOADED_BY_LABEL": "Upload: {uploadedBy}",
+  "TAGS_LABEL": "Tags:",
   "VERSION_COUNT": "Versions: {count:number}",
   "DOWNLOAD_FILE": "Download file",
 

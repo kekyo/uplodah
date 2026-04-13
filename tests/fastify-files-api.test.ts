@@ -99,7 +99,9 @@ describe('Fastify files and upload API', () => {
     const server = await startServer('none');
 
     try {
-      const uploadResponse = await uploadFile('report.txt', 'hello uplodah');
+      const uploadResponse = await uploadFile('report.txt', 'hello uplodah', {
+        'X-UPLODAH-TAGS': 'public, latest',
+      });
       expect(uploadResponse.status).toBe(201);
       const uploadData = await uploadResponse.json();
       expect(uploadData.path).toBe('report.txt');
@@ -115,6 +117,8 @@ describe('Fastify files and upload API', () => {
       expect(listData.totalCount).toBe(1);
       expect(listData.items[0].publicPath).toBe('report.txt');
       expect(listData.items[0].versions[0].uploadId).toBe(uploadData.uploadId);
+      expect(listData.items[0].versions[0].uploadedBy).toBe('anonymous');
+      expect(listData.items[0].versions[0].tags).toEqual(['public', 'latest']);
 
       const latestResponse = await fetch(
         `http://localhost:${serverPort}/api/files/report.txt`
@@ -153,8 +157,17 @@ describe('Fastify files and upload API', () => {
       const publishCookie = await login('publishuser', 'publishpass');
       const publishUpload = await uploadFile('restricted.txt', 'allowed', {
         Cookie: publishCookie,
+        'X-UPLODAH-TAGS': 'release, signed',
       });
       expect(publishUpload.status).toBe(201);
+
+      const listResponse = await fetch(
+        `http://localhost:${serverPort}/api/files?skip=0&take=20`
+      );
+      expect(listResponse.status).toBe(200);
+      const listData = await listResponse.json();
+      expect(listData.items[0].versions[0].uploadedBy).toBe('publishuser');
+      expect(listData.items[0].versions[0].tags).toEqual(['release', 'signed']);
     } finally {
       await server.close();
     }

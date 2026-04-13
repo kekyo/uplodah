@@ -215,6 +215,20 @@ export const messages = {
     fallback: "Upload directory" 
   } as SimpleMessageItem,
   /**
+   * UPLOAD_TAGS ==> "Upload tags"
+   */
+  UPLOAD_TAGS: { 
+    key: "UPLOAD_TAGS", 
+    fallback: "Upload tags" 
+  } as SimpleMessageItem,
+  /**
+   * UPLOAD_TAGS_HELPER ==> "Separate tags with spaces, commas, or semicolons"
+   */
+  UPLOAD_TAGS_HELPER: { 
+    key: "UPLOAD_TAGS_HELPER", 
+    fallback: "Separate tags with spaces, commas, or semicolons" 
+  } as SimpleMessageItem,
+  /**
    * PLEASE_SIGN_IN ==> "Please sign in to continue"
    */
   PLEASE_SIGN_IN: { 
@@ -746,6 +760,20 @@ export const messages = {
     key: "FILE_SIZE_LABEL", 
     fallback: "Size: {size}" 
   } as MessageItem<{ size: string }>,
+  /**
+   * VERSION_DETAILS_LABEL ==> "Upload ID: {uploadId} Size: {size}"
+   */
+  VERSION_DETAILS_LABEL: { 
+    key: "VERSION_DETAILS_LABEL", 
+    fallback: "Upload ID: {uploadId} Size: {size}" 
+  } as MessageItem<{ uploadId: string; size: string }>,
+  /**
+   * UPLOADED_BY_LABEL ==> "Upload: {uploadedBy}"
+   */
+  UPLOADED_BY_LABEL: { 
+    key: "UPLOADED_BY_LABEL", 
+    fallback: "Upload: {uploadedBy}" 
+  } as MessageItem<{ uploadedBy: string }>,
   /**
    * VERSION_COUNT ==> "Versions: {count:number}"
    */

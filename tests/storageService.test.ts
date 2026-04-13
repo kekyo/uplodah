@@ -66,6 +66,69 @@ describe('storageService', () => {
     ).rejects.toThrow('Subdirectories require storage rules to be configured');
   });
 
+  it('should store upload metadata, expose it in version listings, and search by uploader and tags', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-08T10:00:00.000Z'));
+
+    const service = createService();
+    await service.initialize();
+
+    const stored = await service.storeFile('report.txt', Buffer.from('hello'), {
+      uploadedBy: 'alice',
+      tags: ['nightly', 'release'],
+    });
+
+    expect(
+      JSON.parse(
+        await fs.readFile(
+          path.join(testDir, 'report.txt', stored.uploadId, 'metadata.json'),
+          'utf-8'
+        )
+      )
+    ).toEqual({
+      uploadedBy: 'alice',
+      tags: ['nightly', 'release'],
+    });
+
+    expect(await service.listFileGroupVersions('report.txt')).toEqual([
+      {
+        uploadId: stored.uploadId,
+        uploadedAt: stored.uploadedAt,
+        size: stored.size,
+        versionDownloadPath: `/api/files/report.txt/${stored.uploadId}`,
+        uploadedBy: 'alice',
+        tags: ['nightly', 'release'],
+      },
+    ]);
+
+    expect(await service.searchFileGroups('alice')).toEqual([
+      {
+        publicPath: 'report.txt',
+        displayPath: 'report.txt',
+        directoryPath: '/',
+        browseDirectoryPath: '/',
+        browseRelativePath: 'report.txt',
+        fileName: 'report.txt',
+        latestUploadId: stored.uploadId,
+        latestUploadedAt: stored.uploadedAt,
+        latestDownloadPath: '/api/files/report.txt',
+      },
+    ]);
+    expect(await service.searchFileGroups('release')).toEqual([
+      {
+        publicPath: 'report.txt',
+        displayPath: 'report.txt',
+        directoryPath: '/',
+        browseDirectoryPath: '/',
+        browseRelativePath: 'report.txt',
+        fileName: 'report.txt',
+        latestUploadId: stored.uploadId,
+        latestUploadedAt: stored.uploadedAt,
+        latestDownloadPath: '/api/files/report.txt',
+      },
+    ]);
+  });
+
   it('should filter readonly directories from available uploads and enforce rules', async () => {
     const service = createService({
       storage: {

@@ -11,7 +11,9 @@ import enMessages from '../src/ui/public/locale/en.json';
 import {
   UploadDirectoryTooltipLabel,
   UploadResultSummaryContent,
+  UploadTagsField,
   buildUploadDirectoryOptions,
+  normalizeUploadTagsInput,
 } from '../src/ui/components/UploadDrawer';
 
 describe('upload result summary content', () => {
@@ -65,5 +67,31 @@ describe('upload result summary content', () => {
 
     expect(html).toContain('/runs');
     expect(html).toContain('title="GitHub Actions artifacts"');
+  });
+
+  test('renders the upload tags input and helper text', () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        TypedMessageProvider,
+        {
+          messages: enMessages,
+        },
+        createElement(UploadTagsField, {
+          uploadTags: 'foo bar',
+          onChange: () => undefined,
+        })
+      )
+    );
+
+    expect(html).toContain('Upload tags');
+    expect(html).toContain('Separate tags with spaces, commas, or semicolons');
+  });
+
+  test('normalizes free-form upload tags into a comma-delimited header', () => {
+    expect(normalizeUploadTagsInput('foo bar,baz;qux')).toBe('foo,bar,baz,qux');
+    expect(normalizeUploadTagsInput('  foo   ;  bar,  baz  ')).toBe(
+      'foo,bar,baz'
+    );
+    expect(normalizeUploadTagsInput('   ')).toBeUndefined();
   });
 });

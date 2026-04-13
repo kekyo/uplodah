@@ -30,6 +30,26 @@ const decodeWildcardPath = (rawPath: string): string => {
   return segments.map((segment) => decodeURIComponent(segment)).join('/');
 };
 
+const parseUploadTagsHeader = (
+  rawHeader: string | string[] | undefined
+): string[] | undefined => {
+  const rawValue = Array.isArray(rawHeader) ? rawHeader.join(',') : rawHeader;
+  if (typeof rawValue !== 'string') {
+    return undefined;
+  }
+
+  const tags = Array.from(
+    new Set(
+      rawValue
+        .split(',')
+        .map((tag) => tag.trim())
+        .filter((tag) => tag.length > 0)
+    )
+  );
+
+  return tags.length > 0 ? tags : undefined;
+};
+
 const requirePublishRole = (
   request: AuthenticatedFastifyRequest,
   reply: FastifyReply
@@ -88,9 +108,14 @@ export const registerUploadRoutes = async (
 
       try {
         const decodedPath = decodeWildcardPath(rawPath);
+        const authRequest = request as AuthenticatedFastifyRequest;
         const storedFile = await storageService.storeFile(
           decodedPath,
-          fileBuffer
+          fileBuffer,
+          {
+            uploadedBy: authRequest.user?.username ?? 'anonymous',
+            tags: parseUploadTagsHeader(request.headers['x-uplodah-tags']),
+          }
         );
         const baseUrl = urlResolver.resolveUrl(request).baseUrl;
         const latestDownloadUrl = `${baseUrl}${storedFile.latestDownloadPath}`;

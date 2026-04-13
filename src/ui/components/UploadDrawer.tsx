@@ -25,6 +25,7 @@ import {
   Paper,
   Select,
   Stack,
+  TextField,
   Tooltip,
   Typography,
 } from '@mui/material';
@@ -82,6 +83,22 @@ const joinDirectoryAndFileName = (
     return fileName;
   }
   return `${directoryPath.replace(/^\/+/, '')}/${fileName}`;
+};
+
+/**
+ * Normalize free-form upload tag input into a comma-delimited header value.
+ * @param rawTags Free-form tag input from the UI.
+ * @returns Comma-delimited tags or undefined when no tags were entered.
+ */
+export const normalizeUploadTagsInput = (
+  rawTags: string
+): string | undefined => {
+  const tags = rawTags
+    .split(/[\s,;]+/)
+    .map((tag) => tag.trim())
+    .filter((tag) => tag.length > 0);
+
+  return tags.length > 0 ? tags.join(',') : undefined;
 };
 
 /**
@@ -182,6 +199,30 @@ export const UploadResultSummaryContent = ({
   );
 };
 
+/**
+ * Upload tag input field.
+ */
+export const UploadTagsField = ({
+  uploadTags,
+  onChange,
+}: {
+  uploadTags: string;
+  onChange: (value: string) => void;
+}) => {
+  const getMessage = useTypedMessage();
+
+  return (
+    <TextField
+      fullWidth
+      label={getMessage(messages.UPLOAD_TAGS)}
+      value={uploadTags}
+      onChange={(event) => onChange(event.target.value)}
+      helperText={getMessage(messages.UPLOAD_TAGS_HELPER)}
+      sx={{ mb: 3 }}
+    />
+  );
+};
+
 const UploadDrawer = ({
   open,
   onClose,
@@ -194,6 +235,7 @@ const UploadDrawer = ({
   const [uploadResults, setUploadResults] = useState<UploadResult[]>([]);
   const [currentUploadIndex, setCurrentUploadIndex] = useState<number>(-1);
   const [selectedDirectory, setSelectedDirectory] = useState('/');
+  const [uploadTags, setUploadTags] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const dragCounter = useRef(0);
 
@@ -238,6 +280,7 @@ const UploadDrawer = ({
 
     setUploading(true);
     const results: UploadResult[] = [];
+    const normalizedUploadTags = normalizeUploadTagsInput(uploadTags);
 
     for (let index = 0; index < selectedFiles.length; index += 1) {
       const file = selectedFiles[index];
@@ -267,6 +310,9 @@ const UploadDrawer = ({
             method: 'POST',
             headers: {
               'Content-Type': 'application/octet-stream',
+              ...(normalizedUploadTags
+                ? { 'X-UPLODAH-TAGS': normalizedUploadTags }
+                : {}),
             },
             body: fileBuffer,
             credentials: 'same-origin',
@@ -467,6 +513,7 @@ const UploadDrawer = ({
                 {selectedDirectoryOption.description}
               </Typography>
             ) : null}
+            <UploadTagsField uploadTags={uploadTags} onChange={setUploadTags} />
 
             <Paper
               sx={{

@@ -166,6 +166,7 @@ describe('Fastify UI backend API', () => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/octet-stream',
+            'X-UPLODAH-TAGS': 'flashcap, nightly',
           },
           body: Buffer.from('flashcap'),
         }
@@ -219,15 +220,47 @@ describe('Fastify UI backend API', () => {
       );
       expect(versionsResponse.status).toBe(200);
       const versionsData = await versionsResponse.json();
-      expect(versionsData.publicPath).toBe('tmp/flashcap.nupkg');
-      expect(versionsData.items[0].uploadId).toBe(uploadData.uploadId);
+      expect(versionsData).toEqual({
+        publicPath: 'tmp/flashcap.nupkg',
+        items: [
+          {
+            uploadId: uploadData.uploadId,
+            uploadedAt: uploadData.uploadedAt,
+            size: 8,
+            versionDownloadPath: `/api/files/tmp/flashcap.nupkg/${uploadData.uploadId}`,
+            uploadedBy: 'anonymous',
+            tags: ['flashcap', 'nightly'],
+          },
+        ],
+      });
 
       const searchResponse = await fetch(
-        `http://localhost:${serverPort}/api/ui/browse/search?q=flashcap`
+        `http://localhost:${serverPort}/api/ui/browse/search?q=nightly`
       );
       expect(searchResponse.status).toBe(200);
       expect(await searchResponse.json()).toEqual({
-        query: 'flashcap',
+        query: 'nightly',
+        items: [
+          {
+            publicPath: 'tmp/flashcap.nupkg',
+            displayPath: '/tmp/flashcap.nupkg',
+            directoryPath: '/tmp',
+            browseDirectoryPath: '/tmp',
+            browseRelativePath: 'flashcap.nupkg',
+            fileName: 'flashcap.nupkg',
+            latestUploadId: uploadData.uploadId,
+            latestUploadedAt: uploadData.uploadedAt,
+            latestDownloadPath: '/api/files/tmp/flashcap.nupkg',
+          },
+        ],
+      });
+
+      const uploaderSearchResponse = await fetch(
+        `http://localhost:${serverPort}/api/ui/browse/search?q=anonymous`
+      );
+      expect(uploaderSearchResponse.status).toBe(200);
+      expect(await uploaderSearchResponse.json()).toEqual({
+        query: 'anonymous',
         items: [
           {
             publicPath: 'tmp/flashcap.nupkg',

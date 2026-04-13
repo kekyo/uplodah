@@ -44,6 +44,8 @@ interface FileVersion {
   uploadedAt: string;
   size: number;
   versionDownloadPath: string;
+  uploadedBy?: string;
+  tags?: string[];
 }
 
 interface FileGroupSummary {
@@ -775,23 +777,66 @@ export const PackageListEntries = ({
                                     <Typography
                                       variant="body2"
                                       color="text.secondary"
+                                      sx={{ mt: 0.25 }}
                                     >
                                       <TypedMessage
-                                        message={messages.UPLOAD_ID_LABEL}
-                                        params={{ uploadId: version.uploadId }}
-                                      />
-                                    </Typography>
-                                    <Typography
-                                      variant="body2"
-                                      color="text.secondary"
-                                    >
-                                      <TypedMessage
-                                        message={messages.FILE_SIZE_LABEL}
+                                        message={messages.VERSION_DETAILS_LABEL}
                                         params={{
+                                          uploadId: version.uploadId,
                                           size: formatSize(version.size),
                                         }}
                                       />
                                     </Typography>
+                                    {version.uploadedBy ||
+                                    version.tags?.length ? (
+                                      <Box
+                                        sx={{
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          flexWrap: 'wrap',
+                                          gap: 0.75,
+                                          mt: 0.5,
+                                        }}
+                                      >
+                                        {version.uploadedBy ? (
+                                          <Typography
+                                            variant="body2"
+                                            color="text.secondary"
+                                          >
+                                            <TypedMessage
+                                              message={
+                                                messages.UPLOADED_BY_LABEL
+                                              }
+                                              params={{
+                                                uploadedBy: version.uploadedBy,
+                                              }}
+                                            />
+                                          </Typography>
+                                        ) : null}
+                                        {version.tags?.length ? (
+                                          <Typography
+                                            variant="body2"
+                                            color="text.secondary"
+                                          >
+                                            <TypedMessage
+                                              message={messages.TAGS_LABEL}
+                                            />
+                                          </Typography>
+                                        ) : null}
+                                        {version.tags?.map((tag) => (
+                                          <Chip
+                                            key={`${file.publicPath}-${version.uploadId}-${tag}`}
+                                            label={tag}
+                                            size="small"
+                                            variant="outlined"
+                                            sx={{
+                                              bgcolor: 'transparent',
+                                              borderColor: 'divider',
+                                            }}
+                                          />
+                                        ))}
+                                      </Box>
+                                    ) : null}
                                   </Box>
                                   <Button
                                     variant="contained"

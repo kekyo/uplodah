@@ -31,9 +31,23 @@ export interface NormalizedPublicPath {
 }
 
 /**
+ * Optional upload metadata stored alongside a file revision.
+ */
+export interface StoredUploadMetadata {
+  /**
+   * Name of the uploader recorded for the revision.
+   */
+  uploadedBy?: string;
+  /**
+   * Additional tags recorded for the revision.
+   */
+  tags?: string[];
+}
+
+/**
  * Stored version information returned to API callers.
  */
-export interface StoredFileVersionInfo {
+export interface StoredFileVersionInfo extends StoredUploadMetadata {
   uploadId: string;
   uploadedAt: string;
   size: number;
@@ -81,7 +95,7 @@ export interface StoredFileGroupInfo {
 /**
  * Stored file version resolved for download.
  */
-export interface StoredFileVersion {
+export interface StoredFileVersion extends StoredUploadMetadata {
   uploadId: string;
   uploadedAt: string;
   size: number;
@@ -97,7 +111,7 @@ export interface StoredFileVersion {
 /**
  * Result of a stored upload.
  */
-export interface StoreFileResult {
+export interface StoreFileResult extends StoredUploadMetadata {
   uploadId: string;
   uploadedAt: string;
   size: number;
@@ -181,10 +195,12 @@ export interface StorageService {
    * Store a new file version.
    * @param rawPublicPath Public file path.
    * @param fileContent File content.
+   * @param metadata Upload metadata written to `metadata.json`.
    */
   readonly storeFile: (
     rawPublicPath: string,
-    fileContent: Buffer
+    fileContent: Buffer,
+    metadata?: StoredUploadMetadata
   ) => Promise<StoreFileResult>;
   /**
    * Resolve the latest stored version for a public file path.
@@ -209,7 +225,7 @@ interface UploadIdParts {
   sequence: number;
 }
 
-interface InternalStoredFileVersion {
+interface InternalStoredFileVersion extends StoredUploadMetadata {
   uploadId: string;
   uploadedAt: string;
   uploadedAtMs: number;
@@ -395,6 +411,50 @@ export const createStorageService = (
   const createDirectoryDescriptionFields = (description?: string) =>
     description !== undefined ? { description } : {};
 
+  const normalizeStoredUploadMetadata = (
+    metadata: StoredUploadMetadata | undefined
+  ): StoredUploadMetadata => {
+    const uploadedBy =
+      typeof metadata?.uploadedBy === 'string'
+        ? metadata.uploadedBy.trim()
+        : '';
+    const tags = Array.isArray(metadata?.tags)
+      ? Array.from(
+          new Set(
+            metadata.tags
+              .map((tag) => tag.trim())
+              .filter((tag) => tag.length > 0)
+          )
+        )
+      : [];
+
+    return {
+      ...(uploadedBy.length > 0 ? { uploadedBy } : {}),
+      ...(tags.length > 0 ? { tags } : {}),
+    };
+  };
+
+  const parseStoredUploadMetadata = (value: unknown): StoredUploadMetadata => {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      return {};
+    }
+
+    const candidate = value as {
+      uploadedBy?: unknown;
+      tags?: unknown;
+    };
+
+    return normalizeStoredUploadMetadata({
+      uploadedBy:
+        typeof candidate.uploadedBy === 'string'
+          ? candidate.uploadedBy
+          : undefined,
+      tags: Array.isArray(candidate.tags)
+        ? candidate.tags.filter((tag): tag is string => typeof tag === 'string')
+        : undefined,
+    });
+  };
+
   const splitDirectoryPathSegments = (directoryPath: string): string[] =>
     directoryPath === '/'
       ? []
@@ -550,6 +610,7 @@ export const createStorageService = (
     normalizedPath: NormalizedPublicPath,
     version: InternalStoredFileVersion
   ): StoredFileVersionInfo => ({
+    ...normalizeStoredUploadMetadata(version),
     uploadId: version.uploadId,
     uploadedAt: version.uploadedAt,
     size: version.size,
@@ -614,6 +675,7 @@ export const createStorageService = (
     normalizedPath: NormalizedPublicPath,
     version: InternalStoredFileVersion
   ): StoredFileVersion => ({
+    ...normalizeStoredUploadMetadata(version),
     uploadId: version.uploadId,
     uploadedAt: version.uploadedAt,
     size: version.size,
@@ -651,9 +713,10 @@ export const createStorageService = (
     }
 
     const metadataFilePath = path.join(versionDirectoryPath, 'metadata.json');
+    let metadata: StoredUploadMetadata;
     try {
       const metadataContent = await fs.readFile(metadataFilePath, 'utf-8');
-      JSON.parse(metadataContent);
+      metadata = parseStoredUploadMetadata(JSON.parse(metadataContent));
     } catch {
       return undefined;
     }
@@ -673,6 +736,7 @@ export const createStorageService = (
     }
 
     return {
+      ...metadata,
       uploadId,
       uploadedAt: dayjs.utc(uploadIdParts.timestamp).toISOString(),
       uploadedAtMs: uploadIdParts.timestamp,
@@ -1094,8 +1158,13 @@ export const createStorageService = (
             if (group.latestUploadId.toLowerCase().includes(term)) {
               return true;
             }
-            return group.versions.some((version) =>
-              version.uploadId.toLowerCase().includes(term)
+            return group.versions.some(
+              (version) =>
+                version.uploadId.toLowerCase().includes(term) ||
+                version.uploadedBy?.toLowerCase().includes(term) === true ||
+                version.tags?.some((tag) =>
+                  tag.toLowerCase().includes(term)
+                ) === true
             );
           })
         )
@@ -1113,18 +1182,23 @@ export const createStorageService = (
       };
     },
 
-    storeFile: async (rawPublicPath: string, fileContent: Buffer) => {
+    storeFile: async (
+      rawPublicPath: string,
+      fileContent: Buffer,
+      metadata?: StoredUploadMetadata
+    ) => {
       const normalizedPath = normalizePublicPath(rawPublicPath);
       ensureUploadAllowed(normalizedPath);
 
       const groupDirectoryPath = getGroupDirectoryPath(normalizedPath);
       const uploadId = await createUploadId(normalizedPath);
       const versionDirectoryPath = path.join(groupDirectoryPath, uploadId);
+      const normalizedMetadata = normalizeStoredUploadMetadata(metadata);
 
       await fs.mkdir(versionDirectoryPath, { recursive: true });
       await fs.writeFile(
         path.join(versionDirectoryPath, 'metadata.json'),
-        '{}'
+        JSON.stringify(normalizedMetadata)
       );
       await fs.writeFile(
         path.join(versionDirectoryPath, normalizedPath.fileName),
@@ -1140,6 +1214,7 @@ export const createStorageService = (
       }
 
       return {
+        ...normalizeStoredUploadMetadata(storedVersion),
         uploadId: storedVersion.uploadId,
         uploadedAt: storedVersion.uploadedAt,
         size: storedVersion.size,

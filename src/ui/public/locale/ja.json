@@ -29,6 +29,8 @@
   "SELECT_UPLOAD_FILES": "アップロードするファイルを選択:",
   "NO_UPLOAD_DIRECTORIES": "書き込み可能なアップロード先ディレクトリが設定されていません。",
   "UPLOAD_DIRECTORY": "アップロード先ディレクトリ",
+  "UPLOAD_TAGS": "アップロードタグ",
+  "UPLOAD_TAGS_HELPER": "スペース、カンマ、セミコロンでタグを区切れます",
 
   "PLEASE_SIGN_IN": "続行するにはサインインしてください",
   "REMEMBER_ME_DAYS": "7日間ログイン状態を保持",
@@ -110,6 +112,9 @@
   "REVISIONS_HEADER": "リビジョン ({count:number})",
   "UPLOAD_ID_LABEL": "Upload ID: {uploadId}",
   "FILE_SIZE_LABEL": "サイズ: {size}",
+  "VERSION_DETAILS_LABEL": "Upload ID: {uploadId} サイズ: {size}",
+  "UPLOADED_BY_LABEL": "アップロード: {uploadedBy}",
+  "TAGS_LABEL": "タグ:",
   "VERSION_COUNT": "バージョン数: {count:number}",
   "DOWNLOAD_FILE": "ファイルをダウンロード",
 
