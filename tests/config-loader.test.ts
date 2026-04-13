@@ -38,11 +38,12 @@ describe('config-loader', () => {
         storage: {
           '/incoming': {
             description: 'Incoming artifacts',
+            accept: ['store'],
             expireSeconds: 60,
           },
-          '/readonly': {
-            description: 'Read-only archive',
-            readonly: true,
+          '/archive': {
+            description: 'Delete-only archive',
+            accept: ['delete'],
           },
         },
       }`
@@ -59,11 +60,12 @@ describe('config-loader', () => {
       storage: {
         '/incoming': {
           description: 'Incoming artifacts',
+          accept: ['store'],
           expireSeconds: 60,
         },
-        '/readonly': {
-          description: 'Read-only archive',
-          readonly: true,
+        '/archive': {
+          description: 'Delete-only archive',
+          accept: ['delete'],
         },
       },
     });
@@ -99,16 +101,17 @@ describe('config-loader', () => {
         storage: {
           '/incoming': {
             description: 'Incoming artifacts',
+            accept: ['store'],
             expireSeconds: 30,
           },
-          '/readonly': {
-            readonly: true,
+          '/archive': {
+            accept: ['delete'],
           },
           incoming: {},
           '/bad/../path': {},
           '/invalid-fields': {
             description: 123,
-            readonly: 'yes',
+            accept: ['store', 'broken', 1],
             expireSeconds: 0,
           },
         },
@@ -120,12 +123,15 @@ describe('config-loader', () => {
     expect(config.storage).toEqual({
       '/incoming': {
         description: 'Incoming artifacts',
+        accept: ['store'],
         expireSeconds: 30,
       },
-      '/readonly': {
-        readonly: true,
+      '/archive': {
+        accept: ['delete'],
       },
-      '/invalid-fields': {},
+      '/invalid-fields': {
+        accept: ['store'],
+      },
     });
   });
 

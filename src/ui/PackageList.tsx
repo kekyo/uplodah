@@ -4,6 +4,7 @@
 // https://github.com/kekyo/uplodah
 
 import {
+  type MouseEvent,
   useEffect,
   useImperativeHandle,
   forwardRef,
@@ -20,6 +21,13 @@ import {
   Button,
   Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
+  Menu,
+  MenuItem,
   Paper,
   Stack,
   TextField,
@@ -44,12 +52,17 @@ interface FileVersion {
   uploadedAt: string;
   size: number;
   versionDownloadPath: string;
+  canDelete: boolean;
+  uploadedBy?: string;
+  tags?: string[];
 }
 
 interface FileGroupSummary {
   publicPath: string;
   displayPath: string;
   directoryPath: string;
+  browseDirectoryPath: string;
+  browseRelativePath: string;
   fileName: string;
   latestUploadId: string;
   latestUploadedAt: string;
@@ -59,7 +72,7 @@ interface FileGroupSummary {
 interface DirectorySummary {
   directoryPath: string;
   description?: string;
-  readonly: boolean;
+  accept: Array<'store' | 'delete'>;
   fileGroupCount: number;
 }
 
@@ -121,6 +134,14 @@ interface PackageListEntriesProps {
   >;
   versionErrorsByPublicPath: Readonly<Record<string, string | undefined>>;
   versionLoadingPanels: ReadonlySet<string>;
+  canDeleteFileGroupVersion: (
+    file: FileGroupSummary,
+    version: FileVersion
+  ) => boolean;
+  onDeleteVersionRequest: (
+    file: FileGroupSummary,
+    version: FileVersion
+  ) => void;
   onDirectoryAccordionChange: (
     directoryPath: string,
     isExpanded: boolean
@@ -214,7 +235,22 @@ export const formatUploadedAt = (
   return `${localDate.format('YYYY/MM/DD HH:mm:ss')} ${formatUtcOffset(resolvedOffsetMinutes)} (${utcDate.format('YYYY/MM/DD HH:mm:ss [UTC]')})`;
 };
 
-const buildDirectorySections = (
+const buildFileGroupLabel = (
+  file: Pick<FileGroupSummary, 'browseRelativePath' | 'displayPath'>
+): string => file.browseRelativePath || file.displayPath;
+
+/**
+ * Build directory sections for file-group lists using the browse directory
+ * resolved by the API.
+ * @param files File-group summaries to arrange into sections.
+ * @param directoryOrder Browse-directory order returned by the server.
+ * @param explicitCountsByDirectory Optional total counts keyed by browse
+ * directory path.
+ * @param descriptionsByDirectory Optional descriptions keyed by browse
+ * directory path.
+ * @returns Directory sections in browse-directory order.
+ */
+export const buildDirectorySections = (
   files: readonly FileGroupSummary[],
   directoryOrder: readonly string[],
   explicitCountsByDirectory: ReadonlyMap<string, number> | undefined,
@@ -223,12 +259,13 @@ const buildDirectorySections = (
   const sections = new Map<string, FileGroupSummary[]>();
 
   files.forEach((file) => {
-    const sectionFiles = sections.get(file.directoryPath);
+    const sectionDirectoryPath = file.browseDirectoryPath;
+    const sectionFiles = sections.get(sectionDirectoryPath);
     if (sectionFiles) {
       sectionFiles.push(file);
       return;
     }
-    sections.set(file.directoryPath, [file]);
+    sections.set(sectionDirectoryPath, [file]);
   });
 
   const remainingDirectories = Array.from(sections.keys()).filter(
@@ -266,16 +303,64 @@ export const buildBrowseDirectorySections = (
   directories: readonly DirectorySummary[],
   browseFileGroupsByDirectory: Readonly<Record<string, FileGroupSummary[]>>
 ): DirectorySection[] =>
-  directories
-    .filter((directory) => directory.fileGroupCount > 0)
-    .map((directory) => ({
+  directories.map((directory) => {
+    const loadedFiles = browseFileGroupsByDirectory[directory.directoryPath];
+
+    return {
       directoryPath: directory.directoryPath,
       description: directory.description,
-      fileGroupCount: directory.fileGroupCount,
-      files: Array.from(
-        browseFileGroupsByDirectory[directory.directoryPath] ?? []
-      ),
-    }));
+      fileGroupCount: loadedFiles?.length ?? directory.fileGroupCount,
+      files: Array.from(loadedFiles ?? []),
+    };
+  });
+
+/**
+ * Decide whether the current package-list context may show delete actions for a
+ * specific file version.
+ * @param params Target file version returned by the browse API.
+ * @returns True when file-version deletion is allowed for the version.
+ */
+export const canDeleteFileGroupVersion = ({
+  version,
+}: {
+  version: Pick<FileVersion, 'canDelete'>;
+}): boolean => version.canDelete === true;
+
+/**
+ * Update the stored file-group count for a browse directory summary.
+ * @param directories Current directory summaries.
+ * @param directoryPath Directory path to update.
+ * @param fileGroupCount File-group count resolved after loading the directory.
+ * @returns Directory summaries with the matching directory count updated.
+ */
+export const updateDirectorySummaryFileGroupCount = ({
+  directories,
+  directoryPath,
+  fileGroupCount,
+}: {
+  directories: readonly DirectorySummary[];
+  directoryPath: string;
+  fileGroupCount: number;
+}): DirectorySummary[] => {
+  let changed = false;
+
+  const nextDirectories = directories.map((directory) => {
+    if (directory.directoryPath !== directoryPath) {
+      return directory;
+    }
+    if (directory.fileGroupCount === fileGroupCount) {
+      return directory;
+    }
+
+    changed = true;
+    return {
+      ...directory,
+      fileGroupCount,
+    };
+  });
+
+  return changed ? nextDirectories : Array.from(directories);
+};
 
 const deleteRecordEntry = <TValue,>(
   entries: Readonly<Record<string, TValue>>,
@@ -403,384 +488,525 @@ export const PackageListEntries = ({
   versionsByPublicPath,
   versionErrorsByPublicPath,
   versionLoadingPanels,
+  canDeleteFileGroupVersion,
+  onDeleteVersionRequest,
   onDirectoryAccordionChange,
   onAccordionChange,
 }: PackageListEntriesProps) => {
   const getMessage = useTypedMessage();
+  const [versionActionsAnchorEl, setVersionActionsAnchorEl] =
+    useState<HTMLElement | null>(null);
+  const [versionActionsTarget, setVersionActionsTarget] = useState<{
+    file: FileGroupSummary;
+    version: FileVersion;
+  } | null>(null);
+
+  const handleOpenVersionActions = (
+    event: MouseEvent<HTMLElement>,
+    file: FileGroupSummary,
+    version: FileVersion
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setVersionActionsAnchorEl(event.currentTarget);
+    setVersionActionsTarget({ file, version });
+  };
+
+  const handleCloseVersionActions = () => {
+    setVersionActionsAnchorEl(null);
+    setVersionActionsTarget(null);
+  };
 
   return (
-    <Stack spacing={2.5}>
-      {sections.map((section) => (
-        <Accordion
-          key={section.directoryPath}
-          expanded={expandedDirectoryPanels.has(section.directoryPath)}
-          slotProps={{
-            transition: {
-              unmountOnExit: true,
-            },
-          }}
-          onChange={(_event, isExpanded) =>
-            onDirectoryAccordionChange(section.directoryPath, isExpanded)
-          }
-          sx={{
-            bgcolor: (theme) =>
-              theme.palette.mode === 'light' ? 'background.paper' : '#232323',
-            border: '1px solid',
-            borderColor: 'divider',
-            borderRadius: 1.5,
-            boxShadow: 'none',
-            overflow: 'hidden',
-            '&:before': {
-              display: 'none',
-            },
-            '&.Mui-expanded': {
-              my: 0,
-            },
-          }}
-        >
-          <AccordionSummary
-            expandIcon={<ExpandMoreIcon sx={{ color: 'text.secondary' }} />}
+    <>
+      <Stack spacing={2.5} useFlexGap>
+        {sections.map((section) => (
+          <Accordion
+            key={section.directoryPath}
+            expanded={expandedDirectoryPanels.has(section.directoryPath)}
+            slotProps={{
+              transition: {
+                unmountOnExit: true,
+              },
+            }}
+            onChange={(_event, isExpanded) =>
+              onDirectoryAccordionChange(section.directoryPath, isExpanded)
+            }
             sx={{
-              px: 2.5,
-              minHeight: 72,
+              bgcolor: (theme) =>
+                theme.palette.mode === 'light' ? 'background.paper' : '#232323',
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: 1.5,
+              boxShadow: 'none',
+              overflow: 'hidden',
+              '&:before': {
+                display: 'none',
+              },
               '&.Mui-expanded': {
-                minHeight: 72,
-              },
-              '& .MuiAccordionSummary-content': {
-                my: 1.75,
-              },
-              '& .MuiAccordionSummary-content.Mui-expanded': {
-                my: 1.75,
+                my: 0,
               },
             }}
           >
-            <Box
+            <AccordionSummary
+              expandIcon={<ExpandMoreIcon sx={{ color: 'text.secondary' }} />}
               sx={{
-                display: 'flex',
-                alignItems: { xs: 'flex-start', sm: 'center' },
-                gap: 2,
-                minWidth: 0,
-                width: '100%',
+                px: 2.5,
+                minHeight: 72,
+                '&.Mui-expanded': {
+                  minHeight: 72,
+                },
+                '& .MuiAccordionSummary-content': {
+                  my: 1.75,
+                },
+                '& .MuiAccordionSummary-content.Mui-expanded': {
+                  my: 1.75,
+                },
               }}
             >
-              <FolderCopyIcon
-                sx={{
-                  color: 'text.secondary',
-                  fontSize: '2rem',
-                  flexShrink: 0,
-                  mt: { xs: 0.25, sm: 0 },
-                }}
-              />
-              <Box sx={{ minWidth: 0, flexGrow: 1 }}>
-                <Typography
-                  variant="h6"
-                  component="h2"
-                  sx={{ fontWeight: 700, wordBreak: 'break-word' }}
-                >
-                  {section.directoryPath === '/'
-                    ? getMessage(messages.ROOT_DIRECTORY, {
-                        path: section.directoryPath,
-                      })
-                    : section.directoryPath}
-                </Typography>
-                {section.description ? (
-                  <Typography
-                    variant="body2"
-                    color="text.secondary"
-                    sx={{ mt: 0.25 }}
-                  >
-                    {section.description}
-                  </Typography>
-                ) : null}
-              </Box>
-              <Chip
-                size="small"
-                label={getMessage(messages.FILE_GROUPS_COUNT, {
-                  count: section.fileGroupCount,
-                })}
-                sx={{ flexShrink: 0, mr: 1.5 }}
-              />
-            </Box>
-          </AccordionSummary>
-          <AccordionDetails sx={{ px: 2, pt: 0, pb: 2.5 }}>
-            {directoryLoadingPanels.has(section.directoryPath) ||
-            (!loadedDirectoryPanels.has(section.directoryPath) &&
-              directoryErrorsByPath[section.directoryPath] === undefined) ? (
               <Box
                 sx={{
                   display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  py: 3,
+                  alignItems: { xs: 'flex-start', sm: 'center' },
+                  gap: 2,
+                  minWidth: 0,
+                  width: '100%',
                 }}
               >
-                <CircularProgress size={24} />
-              </Box>
-            ) : directoryErrorsByPath[section.directoryPath] ? (
-              <Alert severity="error">
-                {directoryErrorsByPath[section.directoryPath]}
-              </Alert>
-            ) : (
-              <Stack spacing={1.25} useFlexGap>
-                {section.files.map((file) => {
-                  const FileGroupIcon = resolveFileGroupIconComponent(
-                    file.fileName
-                  );
-                  const versions = versionsByPublicPath[file.publicPath];
-                  const versionError =
-                    versionErrorsByPublicPath[file.publicPath];
-                  const isVersionLoading = versionLoadingPanels.has(
-                    file.publicPath
-                  );
-                  const totalSize =
-                    versions?.reduce(
-                      (size, version) => size + version.size,
-                      0
-                    ) ?? 0;
-
-                  return (
-                    <Accordion
-                      key={file.publicPath}
-                      expanded={expandedPanels.has(file.publicPath)}
-                      slotProps={{
-                        transition: {
-                          unmountOnExit: true,
-                        },
-                      }}
-                      onChange={(_event, isExpanded) =>
-                        onAccordionChange(file.publicPath, isExpanded)
-                      }
-                      sx={{
-                        bgcolor: (theme) =>
-                          theme.palette.mode === 'light'
-                            ? 'grey.100'
-                            : '#2d2d2d',
-                        border: '1px solid',
-                        borderColor: (theme) =>
-                          theme.palette.mode === 'light'
-                            ? 'grey.300'
-                            : 'rgba(255,255,255,0.08)',
-                        borderRadius: 1,
-                        boxShadow: 'none',
-                        overflow: 'hidden',
-                        '&:before': {
-                          display: 'none',
-                        },
-                        '&.Mui-expanded': {
-                          my: 0,
-                        },
-                      }}
+                <FolderCopyIcon
+                  sx={{
+                    color: 'text.secondary',
+                    fontSize: '2rem',
+                    flexShrink: 0,
+                    mt: { xs: 0.25, sm: 0 },
+                  }}
+                />
+                <Box sx={{ minWidth: 0, flexGrow: 1 }}>
+                  <Typography
+                    variant="h6"
+                    component="h2"
+                    sx={{ fontWeight: 700, wordBreak: 'break-word' }}
+                  >
+                    {section.directoryPath === '/'
+                      ? getMessage(messages.ROOT_DIRECTORY, {
+                          path: section.directoryPath,
+                        })
+                      : section.directoryPath}
+                  </Typography>
+                  {section.description ? (
+                    <Typography
+                      variant="body2"
+                      color="text.secondary"
+                      sx={{ mt: 0.25 }}
                     >
-                      <AccordionSummary
-                        expandIcon={
-                          <ExpandMoreIcon sx={{ color: 'text.secondary' }} />
+                      {section.description}
+                    </Typography>
+                  ) : null}
+                </Box>
+                <Chip
+                  size="small"
+                  label={getMessage(messages.FILE_GROUPS_COUNT, {
+                    count: section.fileGroupCount,
+                  })}
+                  sx={{ flexShrink: 0, mr: 1.5 }}
+                />
+              </Box>
+            </AccordionSummary>
+            <AccordionDetails sx={{ px: 2, pt: 0, pb: 2.5 }}>
+              {directoryLoadingPanels.has(section.directoryPath) ||
+              (!loadedDirectoryPanels.has(section.directoryPath) &&
+                directoryErrorsByPath[section.directoryPath] === undefined) ? (
+                <Box
+                  sx={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    py: 3,
+                  }}
+                >
+                  <CircularProgress size={24} />
+                </Box>
+              ) : directoryErrorsByPath[section.directoryPath] ? (
+                <Alert severity="error">
+                  {directoryErrorsByPath[section.directoryPath]}
+                </Alert>
+              ) : (
+                <Stack spacing={1.25} useFlexGap>
+                  {section.files.map((file) => {
+                    const FileGroupIcon = resolveFileGroupIconComponent(
+                      file.fileName
+                    );
+                    const versions = versionsByPublicPath[file.publicPath];
+                    const versionError =
+                      versionErrorsByPublicPath[file.publicPath];
+                    const isVersionLoading = versionLoadingPanels.has(
+                      file.publicPath
+                    );
+                    const totalSize =
+                      versions?.reduce(
+                        (size, version) => size + version.size,
+                        0
+                      ) ?? 0;
+
+                    return (
+                      <Accordion
+                        key={file.publicPath}
+                        expanded={expandedPanels.has(file.publicPath)}
+                        slotProps={{
+                          transition: {
+                            unmountOnExit: true,
+                          },
+                        }}
+                        onChange={(_event, isExpanded) =>
+                          onAccordionChange(file.publicPath, isExpanded)
                         }
                         sx={{
-                          px: 2.5,
-                          minHeight: 80,
+                          bgcolor: (theme) =>
+                            theme.palette.mode === 'light'
+                              ? 'grey.100'
+                              : '#2d2d2d',
+                          border: '1px solid',
+                          borderColor: (theme) =>
+                            theme.palette.mode === 'light'
+                              ? 'grey.300'
+                              : 'rgba(255,255,255,0.08)',
+                          borderRadius: 1,
+                          boxShadow: 'none',
+                          overflow: 'hidden',
+                          '&:before': {
+                            display: 'none',
+                          },
                           '&.Mui-expanded': {
-                            minHeight: 80,
-                          },
-                          '& .MuiAccordionSummary-content': {
-                            my: 1.75,
-                          },
-                          '& .MuiAccordionSummary-content.Mui-expanded': {
-                            my: 1.75,
+                            my: 0,
                           },
                         }}
                       >
-                        <Box
+                        <AccordionSummary
+                          expandIcon={
+                            <ExpandMoreIcon sx={{ color: 'text.secondary' }} />
+                          }
                           sx={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 2,
-                            minWidth: 0,
-                            width: '100%',
+                            px: 2.5,
+                            minHeight: 80,
+                            '&.Mui-expanded': {
+                              minHeight: 80,
+                            },
+                            '& .MuiAccordionSummary-content': {
+                              my: 1.75,
+                            },
+                            '& .MuiAccordionSummary-content.Mui-expanded': {
+                              my: 1.75,
+                            },
                           }}
                         >
-                          <FileGroupIcon
-                            sx={{
-                              color: 'text.secondary',
-                              fontSize: '2rem',
-                              flexShrink: 0,
-                            }}
-                          />
-                          <Box sx={{ minWidth: 0, flexGrow: 1 }}>
-                            <Typography
-                              variant="h6"
-                              component="div"
-                              sx={{ fontWeight: 700, wordBreak: 'break-word' }}
-                            >
-                              {file.fileName}
-                            </Typography>
-                            <Typography
-                              variant="body2"
-                              color="text.secondary"
-                              sx={{ mt: 0.25 }}
-                            >
-                              <TypedMessage
-                                message={messages.LATEST_UPLOAD}
-                                params={{
-                                  uploadedAt: formatUploadedAt(
-                                    file.latestUploadedAt
-                                  ),
-                                }}
-                              />
-                            </Typography>
-                          </Box>
-                        </Box>
-                      </AccordionSummary>
-                      <AccordionDetails sx={{ px: 2.5, pt: 0, pb: 2.5 }}>
-                        {isVersionLoading ? (
                           <Box
                             sx={{
                               display: 'flex',
-                              justifyContent: 'center',
                               alignItems: 'center',
-                              py: 3,
+                              gap: 2,
+                              minWidth: 0,
+                              width: '100%',
                             }}
                           >
-                            <CircularProgress size={24} />
+                            <FileGroupIcon
+                              sx={{
+                                color: 'text.secondary',
+                                fontSize: '2rem',
+                                flexShrink: 0,
+                              }}
+                            />
+                            <Box sx={{ minWidth: 0, flexGrow: 1 }}>
+                              <Typography
+                                variant="h6"
+                                component="div"
+                                sx={{
+                                  fontWeight: 700,
+                                  wordBreak: 'break-word',
+                                }}
+                              >
+                                {buildFileGroupLabel(file)}
+                              </Typography>
+                              <Typography
+                                variant="body2"
+                                color="text.secondary"
+                                sx={{ mt: 0.25 }}
+                              >
+                                <TypedMessage
+                                  message={messages.LATEST_UPLOAD}
+                                  params={{
+                                    uploadedAt: formatUploadedAt(
+                                      file.latestUploadedAt
+                                    ),
+                                  }}
+                                />
+                              </Typography>
+                            </Box>
                           </Box>
-                        ) : versionError ? (
-                          <Alert severity="error">{versionError}</Alert>
-                        ) : versions ? (
-                          <>
-                            <Typography
-                              variant="subtitle2"
-                              component="h3"
-                              sx={{ mb: 1, fontWeight: 700 }}
+                        </AccordionSummary>
+                        <AccordionDetails sx={{ px: 2.5, pt: 0, pb: 2.5 }}>
+                          {isVersionLoading ? (
+                            <Box
+                              sx={{
+                                display: 'flex',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                py: 3,
+                              }}
                             >
-                              <TypedMessage message={messages.GROUP_SUMMARY} />
-                            </Typography>
-                            <Stack
-                              direction="row"
-                              spacing={1}
-                              useFlexGap
-                              sx={{ mb: 2.5, flexWrap: 'wrap' }}
-                            >
-                              <Chip
-                                size="small"
-                                label={getMessage(messages.UPLOADS_COUNT, {
-                                  count: versions.length,
-                                })}
-                                sx={{
-                                  bgcolor: 'transparent',
-                                  border: '1px solid',
-                                  borderColor: 'divider',
-                                }}
-                              />
-                              <Chip
-                                size="small"
-                                label={getMessage(messages.TOTAL_SIZE, {
-                                  size: formatSize(totalSize),
-                                })}
-                                sx={{
-                                  bgcolor: 'transparent',
-                                  border: '1px solid',
-                                  borderColor: 'divider',
-                                }}
-                              />
-                            </Stack>
-                            <Typography
-                              variant="subtitle2"
-                              component="h3"
-                              sx={{ mb: 1.25, fontWeight: 700 }}
-                            >
-                              <TypedMessage
-                                message={messages.REVISIONS_HEADER}
-                                params={{ count: versions.length }}
-                              />
-                            </Typography>
-                            <Stack spacing={1}>
-                              {versions.map((version) => (
-                                <Paper
-                                  key={`${file.publicPath}-${version.uploadId}`}
-                                  variant="outlined"
+                              <CircularProgress size={24} />
+                            </Box>
+                          ) : versionError ? (
+                            <Alert severity="error">{versionError}</Alert>
+                          ) : versions ? (
+                            <>
+                              <Typography
+                                variant="subtitle2"
+                                component="h3"
+                                sx={{ mb: 1, fontWeight: 700 }}
+                              >
+                                <TypedMessage
+                                  message={messages.GROUP_SUMMARY}
+                                />
+                              </Typography>
+                              <Stack
+                                direction="row"
+                                spacing={1}
+                                useFlexGap
+                                sx={{ mb: 2.5, flexWrap: 'wrap' }}
+                              >
+                                <Chip
+                                  size="small"
+                                  label={getMessage(messages.UPLOADS_COUNT, {
+                                    count: versions.length,
+                                  })}
                                   sx={{
-                                    p: 2,
-                                    display: 'flex',
-                                    flexDirection: { xs: 'column', sm: 'row' },
-                                    alignItems: { xs: 'stretch', sm: 'center' },
-                                    justifyContent: 'space-between',
-                                    gap: 2,
-                                    bgcolor: (theme) =>
-                                      theme.palette.mode === 'light'
-                                        ? 'grey.50'
-                                        : 'rgba(255,255,255,0.04)',
+                                    bgcolor: 'transparent',
+                                    border: '1px solid',
                                     borderColor: 'divider',
                                   }}
-                                >
-                                  <Box>
-                                    <Typography
-                                      variant="body1"
-                                      sx={{ fontWeight: 500 }}
-                                    >
-                                      {formatUploadedAt(version.uploadedAt)}
-                                    </Typography>
-                                    <Typography
-                                      variant="body2"
-                                      color="text.secondary"
-                                    >
-                                      <TypedMessage
-                                        message={messages.UPLOAD_ID_LABEL}
-                                        params={{ uploadId: version.uploadId }}
-                                      />
-                                    </Typography>
-                                    <Typography
-                                      variant="body2"
-                                      color="text.secondary"
-                                    >
-                                      <TypedMessage
-                                        message={messages.FILE_SIZE_LABEL}
-                                        params={{
-                                          size: formatSize(version.size),
-                                        }}
-                                      />
-                                    </Typography>
-                                  </Box>
-                                  <Button
-                                    variant="contained"
-                                    size="small"
-                                    startIcon={<DownloadIcon />}
-                                    href={version.versionDownloadPath}
+                                />
+                                <Chip
+                                  size="small"
+                                  label={getMessage(messages.TOTAL_SIZE, {
+                                    size: formatSize(totalSize),
+                                  })}
+                                  sx={{
+                                    bgcolor: 'transparent',
+                                    border: '1px solid',
+                                    borderColor: 'divider',
+                                  }}
+                                />
+                              </Stack>
+                              <Typography
+                                variant="subtitle2"
+                                component="h3"
+                                sx={{ mb: 1.25, fontWeight: 700 }}
+                              >
+                                <TypedMessage
+                                  message={messages.REVISIONS_HEADER}
+                                  params={{ count: versions.length }}
+                                />
+                              </Typography>
+                              <Stack spacing={1}>
+                                {versions.map((version) => (
+                                  <Paper
+                                    key={`${file.publicPath}-${version.uploadId}`}
+                                    variant="outlined"
                                     sx={{
-                                      alignSelf: {
+                                      p: 2,
+                                      display: 'flex',
+                                      flexDirection: {
+                                        xs: 'column',
+                                        sm: 'row',
+                                      },
+                                      alignItems: {
                                         xs: 'stretch',
                                         sm: 'center',
                                       },
-                                      minWidth: { sm: 132 },
-                                      boxShadow: 'none',
+                                      justifyContent: 'space-between',
+                                      gap: 2,
+                                      bgcolor: (theme) =>
+                                        theme.palette.mode === 'light'
+                                          ? 'grey.50'
+                                          : 'rgba(255,255,255,0.04)',
+                                      borderColor: 'divider',
                                     }}
                                   >
-                                    <TypedMessage message={messages.DOWNLOAD} />
-                                  </Button>
-                                </Paper>
-                              ))}
-                            </Stack>
-                          </>
-                        ) : (
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              justifyContent: 'center',
-                              alignItems: 'center',
-                              py: 3,
-                            }}
-                          >
-                            <CircularProgress size={24} />
-                          </Box>
-                        )}
-                      </AccordionDetails>
-                    </Accordion>
-                  );
-                })}
-              </Stack>
-            )}
-          </AccordionDetails>
-        </Accordion>
-      ))}
-    </Stack>
+                                    <Box>
+                                      <Typography
+                                        variant="body1"
+                                        sx={{ fontWeight: 500 }}
+                                      >
+                                        {formatUploadedAt(version.uploadedAt)}
+                                      </Typography>
+                                      <Typography
+                                        variant="body2"
+                                        color="text.secondary"
+                                        sx={{ mt: 0.25 }}
+                                      >
+                                        <TypedMessage
+                                          message={
+                                            messages.VERSION_DETAILS_LABEL
+                                          }
+                                          params={{
+                                            uploadId: version.uploadId,
+                                            size: formatSize(version.size),
+                                          }}
+                                        />
+                                      </Typography>
+                                      {version.uploadedBy ||
+                                      version.tags?.length ? (
+                                        <Box
+                                          sx={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            flexWrap: 'wrap',
+                                            gap: 0.75,
+                                            mt: 0.5,
+                                          }}
+                                        >
+                                          {version.uploadedBy ? (
+                                            <Typography
+                                              variant="body2"
+                                              color="text.secondary"
+                                            >
+                                              <TypedMessage
+                                                message={
+                                                  messages.UPLOADED_BY_LABEL
+                                                }
+                                                params={{
+                                                  uploadedBy:
+                                                    version.uploadedBy,
+                                                }}
+                                              />
+                                            </Typography>
+                                          ) : null}
+                                          {version.tags?.length ? (
+                                            <Typography
+                                              variant="body2"
+                                              color="text.secondary"
+                                            >
+                                              <TypedMessage
+                                                message={messages.TAGS_LABEL}
+                                              />
+                                            </Typography>
+                                          ) : null}
+                                          {version.tags?.map((tag) => (
+                                            <Chip
+                                              key={`${file.publicPath}-${version.uploadId}-${tag}`}
+                                              label={tag}
+                                              size="small"
+                                              variant="outlined"
+                                              sx={{
+                                                bgcolor: 'transparent',
+                                                borderColor: 'divider',
+                                              }}
+                                            />
+                                          ))}
+                                        </Box>
+                                      ) : null}
+                                    </Box>
+                                    <Stack
+                                      direction="row"
+                                      spacing={1}
+                                      useFlexGap
+                                      sx={{
+                                        alignSelf: {
+                                          xs: 'stretch',
+                                          sm: 'center',
+                                        },
+                                        width: { xs: '100%', sm: 'auto' },
+                                      }}
+                                    >
+                                      <Button
+                                        variant="contained"
+                                        size="small"
+                                        startIcon={<DownloadIcon />}
+                                        href={version.versionDownloadPath}
+                                        sx={{
+                                          flexGrow: { xs: 1, sm: 0 },
+                                          minWidth: { sm: 132 },
+                                          boxShadow: 'none',
+                                        }}
+                                      >
+                                        <TypedMessage
+                                          message={messages.DOWNLOAD}
+                                        />
+                                      </Button>
+                                      {canDeleteFileGroupVersion(
+                                        file,
+                                        version
+                                      ) ? (
+                                        <Button
+                                          variant="outlined"
+                                          size="small"
+                                          aria-label={getMessage(
+                                            messages.FILE_ACTIONS
+                                          )}
+                                          onClick={(event) =>
+                                            handleOpenVersionActions(
+                                              event,
+                                              file,
+                                              version
+                                            )
+                                          }
+                                          sx={{
+                                            minWidth: 44,
+                                            px: 1.25,
+                                            fontSize: '1.1rem',
+                                            lineHeight: 1,
+                                          }}
+                                        >
+                                          ...
+                                        </Button>
+                                      ) : null}
+                                    </Stack>
+                                  </Paper>
+                                ))}
+                              </Stack>
+                            </>
+                          ) : (
+                            <Box
+                              sx={{
+                                display: 'flex',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                py: 3,
+                              }}
+                            >
+                              <CircularProgress size={24} />
+                            </Box>
+                          )}
+                        </AccordionDetails>
+                      </Accordion>
+                    );
+                  })}
+                </Stack>
+              )}
+            </AccordionDetails>
+          </Accordion>
+        ))}
+      </Stack>
+      {versionActionsTarget ? (
+        <Menu
+          anchorEl={versionActionsAnchorEl}
+          open={true}
+          onClose={handleCloseVersionActions}
+        >
+          <MenuItem
+            onClick={() => {
+              onDeleteVersionRequest(
+                versionActionsTarget.file,
+                versionActionsTarget.version
+              );
+              handleCloseVersionActions();
+            }}
+          >
+            <TypedMessage message={messages.DELETE} />
+          </MenuItem>
+        </Menu>
+      ) : null}
+    </>
   );
 };
 
@@ -801,12 +1027,13 @@ export const PackageListHeaderTitle = ({
       display: 'flex',
       alignItems: 'center',
       gap: 1,
-      fontWeight: 700,
     }}
   >
     <HomeIcon fontSize="large" />
-    <TypedMessage message={messages.FILE_GROUPS_HEADER} /> (
-    {visibleDirectoryCount})
+    <TypedMessage
+      message={messages.FILE_GROUPS_HEADER}
+      params={{ count: visibleDirectoryCount }}
+    />
   </Typography>
 );
 
@@ -847,6 +1074,12 @@ const PackageList = forwardRef<PackageListRef, PackageListProps>(
     const [filterText, setFilterText] = useState('');
     const [debouncedFilterText, setDebouncedFilterText] = useState('');
     const [refreshToken, setRefreshToken] = useState(0);
+    const [deleteTarget, setDeleteTarget] = useState<{
+      file: FileGroupSummary;
+      version: FileVersion;
+    } | null>(null);
+    const [deleteError, setDeleteError] = useState<string | null>(null);
+    const [deleteInProgress, setDeleteInProgress] = useState(false);
     const directoryRequestControllersRef = useRef<Map<string, AbortController>>(
       new Map()
     );
@@ -1086,6 +1319,62 @@ const PackageList = forwardRef<PackageListRef, PackageListProps>(
       },
     }));
 
+    const handleCloseDeleteDialog = () => {
+      if (deleteInProgress) {
+        return;
+      }
+
+      setDeleteTarget(null);
+      setDeleteError(null);
+    };
+
+    const handleConfirmDelete = async () => {
+      if (!deleteTarget) {
+        return;
+      }
+
+      setDeleteInProgress(true);
+      setDeleteError(null);
+
+      try {
+        const response = await apiFetch(
+          deleteTarget.version.versionDownloadPath,
+          {
+            method: 'DELETE',
+            credentials: 'same-origin',
+          }
+        );
+        const data = await response.json().catch(() => ({}));
+
+        if (response.ok) {
+          setDeleteTarget(null);
+          setDeleteError(null);
+          setRefreshToken((current) => current + 1);
+          return;
+        }
+
+        if (response.status === 401) {
+          setDeleteTarget(null);
+          setDeleteError(null);
+          return;
+        }
+
+        const errorMessage =
+          typeof data.error === 'string'
+            ? data.error
+            : typeof data.message === 'string'
+              ? data.message
+              : getMessage(messages.FILE_VERSION_DELETE_FAILED);
+        setDeleteError(errorMessage);
+      } catch (error) {
+        setDeleteError(
+          `${getMessage(messages.FILE_VERSION_DELETE_FAILED)}: ${error instanceof Error ? error.message : getMessage(messages.UNKNOWN_ERROR)}`
+        );
+      } finally {
+        setDeleteInProgress(false);
+      }
+    };
+
     const directoryOrder = useMemo(
       () => directorySummaries.map((directory) => directory.directoryPath),
       [directorySummaries]
@@ -1149,6 +1438,13 @@ const PackageList = forwardRef<PackageListRef, PackageListProps>(
       isSearchMode
     );
     const visibleDirectoryCount = sections.length;
+    const resolveCanDeleteFileGroupVersion = (
+      _file: FileGroupSummary,
+      version: FileVersion
+    ): boolean =>
+      canDeleteFileGroupVersion({
+        version,
+      });
 
     const loadDirectoryFileGroups = (directoryPath: string) => {
       if (directoryLoadingPanels.has(directoryPath)) {
@@ -1197,6 +1493,13 @@ const PackageList = forwardRef<PackageListRef, PackageListProps>(
             ...currentFileGroups,
             [directoryPath]: data.items,
           }));
+          setDirectorySummaries((currentDirectories) =>
+            updateDirectorySummaryFileGroupCount({
+              directories: currentDirectories,
+              directoryPath,
+              fileGroupCount: data.items.length,
+            })
+          );
         } catch (requestError) {
           if (
             requestError instanceof DOMException &&
@@ -1309,9 +1612,7 @@ const PackageList = forwardRef<PackageListRef, PackageListProps>(
       }
 
       const visibleDirectoryPaths = new Set(
-        directorySummaries
-          .filter((directory) => directory.fileGroupCount > 0)
-          .map((directory) => directory.directoryPath)
+        directorySummaries.map((directory) => directory.directoryPath)
       );
 
       expandedDirectoryPanels.forEach((directoryPath) => {
@@ -1468,6 +1769,11 @@ const PackageList = forwardRef<PackageListRef, PackageListProps>(
             versionsByPublicPath={versionsByPublicPath}
             versionErrorsByPublicPath={versionErrorsByPublicPath}
             versionLoadingPanels={versionLoadingPanels}
+            canDeleteFileGroupVersion={resolveCanDeleteFileGroupVersion}
+            onDeleteVersionRequest={(file, version) => {
+              setDeleteTarget({ file, version });
+              setDeleteError(null);
+            }}
             onDirectoryAccordionChange={(directoryPath, isExpanded) => {
               setExpandedDirectoryPanels((currentPanels) => {
                 const nextPanels = new Set(currentPanels);
@@ -1555,6 +1861,51 @@ const PackageList = forwardRef<PackageListRef, PackageListProps>(
             }}
           />
         )}
+        <Dialog
+          open={deleteTarget !== null}
+          onClose={handleCloseDeleteDialog}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>
+            <TypedMessage message={messages.CONFIRM_FILE_DELETION_TITLE} />
+          </DialogTitle>
+          <DialogContent>
+            <DialogContentText>
+              {deleteTarget ? (
+                <TypedMessage
+                  message={messages.CONFIRM_DELETE_FILE_VERSION}
+                  params={{
+                    path: deleteTarget.file.displayPath,
+                    uploadId: deleteTarget.version.uploadId,
+                  }}
+                />
+              ) : null}
+            </DialogContentText>
+            {deleteError ? (
+              <Alert severity="error" sx={{ mt: 2 }}>
+                {deleteError}
+              </Alert>
+            ) : null}
+          </DialogContent>
+          <DialogActions>
+            <Button
+              onClick={handleCloseDeleteDialog}
+              disabled={deleteInProgress}
+            >
+              <TypedMessage message={messages.CANCEL} />
+            </Button>
+            <Button
+              onClick={handleConfirmDelete}
+              color="error"
+              disabled={deleteInProgress}
+            >
+              <TypedMessage
+                message={deleteInProgress ? messages.DELETING : messages.DELETE}
+              />
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Box>
     );
   }

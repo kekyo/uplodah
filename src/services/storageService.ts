@@ -13,6 +13,7 @@ import {
   Logger,
   ServerConfig,
   StorageDirectoryDescriptor,
+  StoragePermission,
   StorageRule,
 } from '../types';
 
@@ -28,12 +29,29 @@ export interface NormalizedPublicPath {
   directoryPath: string;
   fileName: string;
   segments: string[];
+  virtualDirectoryPath: string;
+  relativePath: string;
+  storageRule?: StorageRule;
+}
+
+/**
+ * Optional upload metadata stored alongside a file revision.
+ */
+export interface StoredUploadMetadata {
+  /**
+   * Name of the uploader recorded for the revision.
+   */
+  uploadedBy?: string;
+  /**
+   * Additional tags recorded for the revision.
+   */
+  tags?: string[];
 }
 
 /**
  * Stored version information returned to API callers.
  */
-export interface StoredFileVersionInfo {
+export interface StoredFileVersionInfo extends StoredUploadMetadata {
   uploadId: string;
   uploadedAt: string;
   size: number;
@@ -44,12 +62,23 @@ export interface StoredFileVersionInfo {
  * Stored file-group summary returned to the browse/search API.
  */
 export interface StoredFileGroupSummaryInfo {
+  /** Public file path relative to the storage root. */
   publicPath: string;
+  /** Human-readable full path shown in the UI. */
   displayPath: string;
+  /** Actual public parent directory that contains the file group. */
   directoryPath: string;
+  /** Directory section path used to group the file in browse/search views. */
+  browseDirectoryPath: string;
+  /** File label relative to the browse directory section. */
+  browseRelativePath: string;
+  /** Basename of the file group. */
   fileName: string;
+  /** Upload identifier of the latest stored version. */
   latestUploadId: string;
+  /** ISO-8601 timestamp of the latest stored version. */
   latestUploadedAt: string;
+  /** Latest-download API path for the file group. */
   latestDownloadPath: string;
 }
 
@@ -70,7 +99,7 @@ export interface StoredFileGroupInfo {
 /**
  * Stored file version resolved for download.
  */
-export interface StoredFileVersion {
+export interface StoredFileVersion extends StoredUploadMetadata {
   uploadId: string;
   uploadedAt: string;
   size: number;
@@ -86,7 +115,7 @@ export interface StoredFileVersion {
 /**
  * Result of a stored upload.
  */
-export interface StoreFileResult {
+export interface StoreFileResult extends StoredUploadMetadata {
   uploadId: string;
   uploadedAt: string;
   size: number;
@@ -112,7 +141,7 @@ export interface StoredFileListResult {
 export interface StoredDirectoryInfo {
   directoryPath: string;
   description?: string;
-  readonly: boolean;
+  accept: StoragePermission[];
   fileGroupCount: number;
 }
 
@@ -132,6 +161,16 @@ export interface StorageService {
    * Get uploadable public directories with UI metadata.
    */
   readonly getAvailableUploadDirectoryDetails: () => StorageDirectoryDescriptor[];
+  /**
+   * Check whether a public file path is accepted for a storage action by
+   * storage-directory rules.
+   * @param rawPublicPath Public file path.
+   * @param permission Directory permission to check.
+   */
+  readonly isPublicPathAcceptedForPermission: (
+    rawPublicPath: string,
+    permission: StoragePermission
+  ) => boolean;
   /**
    * List configured virtual directories in display order with file-group counts.
    */
@@ -170,11 +209,23 @@ export interface StorageService {
    * Store a new file version.
    * @param rawPublicPath Public file path.
    * @param fileContent File content.
+   * @param metadata Upload metadata written to `metadata.json`.
    */
   readonly storeFile: (
     rawPublicPath: string,
-    fileContent: Buffer
+    fileContent: Buffer,
+    metadata?: StoredUploadMetadata
   ) => Promise<StoreFileResult>;
+  /**
+   * Delete a specific stored file version.
+   * @param rawPublicPath Public file path.
+   * @param uploadId Upload identifier.
+   * @returns True when the version was deleted, otherwise false.
+   */
+  readonly deleteFileVersion: (
+    rawPublicPath: string,
+    uploadId: string
+  ) => Promise<boolean>;
   /**
    * Resolve the latest stored version for a public file path.
    * @param rawPublicPath Public file path.
@@ -198,7 +249,7 @@ interface UploadIdParts {
   sequence: number;
 }
 
-interface InternalStoredFileVersion {
+interface InternalStoredFileVersion extends StoredUploadMetadata {
   uploadId: string;
   uploadedAt: string;
   uploadedAtMs: number;
@@ -211,9 +262,21 @@ interface InternalStoredFileGroupSummary {
   latestVersion: InternalStoredFileVersion;
 }
 
-interface MatchingRule {
+interface ResolvedVirtualDirectory {
+  virtualDirectoryPath: string;
+  relativeSegments: string[];
+  rule?: StorageRule;
+}
+
+interface ConfiguredStorageDirectory {
   directoryPath: string;
+  segments: string[];
   rule: StorageRule;
+}
+
+interface InternalStoredFileGroupInfo extends StoredFileGroupInfo {
+  browseDirectoryPath: string;
+  browseRelativePath: string;
 }
 
 /**
@@ -338,17 +401,9 @@ export const createStorageService = (
       directoryPath,
       fileName,
       segments,
+      virtualDirectoryPath: '/',
+      relativePath: segments.join('/'),
     };
-  };
-
-  const normalizePublicPath = (rawPublicPath: string): NormalizedPublicPath => {
-    const normalizedPath = normalizeStoredPublicPath(rawPublicPath);
-
-    if (!hasStorageRules && normalizedPath.segments.length !== 1) {
-      throw new Error('Subdirectories require storage rules to be configured');
-    }
-
-    return normalizedPath;
   };
 
   const normalizeDirectoryPath = (rawDirectoryPath: string): string => {
@@ -380,9 +435,184 @@ export const createStorageService = (
     }
     return Object.keys(storageRules);
   };
+  const defaultStoragePermissions: readonly StoragePermission[] = [
+    'store',
+    'delete',
+  ];
+  const getAcceptedPermissions = (
+    rule: StorageRule | undefined
+  ): StoragePermission[] =>
+    rule?.accept !== undefined
+      ? Array.from(new Set(rule.accept))
+      : [...defaultStoragePermissions];
+  const isPermissionAccepted = (
+    rule: StorageRule | undefined,
+    permission: StoragePermission
+  ): boolean => getAcceptedPermissions(rule).includes(permission);
+  const getPermissionDeniedMessage = (permission: StoragePermission): string =>
+    permission === 'store'
+      ? 'Upload directory does not allow uploads'
+      : 'Upload directory does not allow deletions';
 
   const createDirectoryDescriptionFields = (description?: string) =>
     description !== undefined ? { description } : {};
+
+  const normalizeStoredUploadMetadata = (
+    metadata: StoredUploadMetadata | undefined
+  ): StoredUploadMetadata => {
+    const uploadedBy =
+      typeof metadata?.uploadedBy === 'string'
+        ? metadata.uploadedBy.trim()
+        : '';
+    const tags = Array.isArray(metadata?.tags)
+      ? Array.from(
+          new Set(
+            metadata.tags
+              .map((tag) => tag.trim())
+              .filter((tag) => tag.length > 0)
+          )
+        )
+      : [];
+
+    return {
+      ...(uploadedBy.length > 0 ? { uploadedBy } : {}),
+      ...(tags.length > 0 ? { tags } : {}),
+    };
+  };
+
+  const parseStoredUploadMetadata = (value: unknown): StoredUploadMetadata => {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      return {};
+    }
+
+    const candidate = value as {
+      uploadedBy?: unknown;
+      tags?: unknown;
+    };
+
+    return normalizeStoredUploadMetadata({
+      uploadedBy:
+        typeof candidate.uploadedBy === 'string'
+          ? candidate.uploadedBy
+          : undefined,
+      tags: Array.isArray(candidate.tags)
+        ? candidate.tags.filter((tag): tag is string => typeof tag === 'string')
+        : undefined,
+    });
+  };
+
+  const splitDirectoryPathSegments = (directoryPath: string): string[] =>
+    directoryPath === '/'
+      ? []
+      : directoryPath.split('/').filter((segment) => segment.length > 0);
+
+  const configuredStorageDirectories: ConfiguredStorageDirectory[] =
+    storageRules
+      ? Object.entries(storageRules)
+          .map(([directoryPath, rule]) => ({
+            directoryPath,
+            segments: splitDirectoryPathSegments(directoryPath),
+            rule,
+          }))
+          .sort(
+            (left, right) =>
+              right.segments.length - left.segments.length ||
+              left.directoryPath.localeCompare(right.directoryPath)
+          )
+      : [];
+
+  const createResolvedPublicPath = (
+    normalizedPath: NormalizedPublicPath,
+    resolution: ResolvedVirtualDirectory
+  ): NormalizedPublicPath => ({
+    ...normalizedPath,
+    virtualDirectoryPath: resolution.virtualDirectoryPath,
+    relativePath: resolution.relativeSegments.join('/'),
+    storageRule: resolution.rule,
+  });
+
+  const resolveConfiguredVirtualDirectory = (
+    segments: string[]
+  ): ResolvedVirtualDirectory | undefined => {
+    if (!storageRules) {
+      return segments.length === 1
+        ? {
+            virtualDirectoryPath: '/',
+            relativeSegments: segments,
+          }
+        : undefined;
+    }
+
+    for (const configuredDirectory of configuredStorageDirectories) {
+      if (configuredDirectory.segments.length >= segments.length) {
+        continue;
+      }
+      if (
+        configuredDirectory.segments.every(
+          (segment, index) => segments[index] === segment
+        )
+      ) {
+        return {
+          virtualDirectoryPath: configuredDirectory.directoryPath,
+          relativeSegments: segments.slice(configuredDirectory.segments.length),
+          rule: configuredDirectory.rule,
+        };
+      }
+    }
+
+    return undefined;
+  };
+
+  const resolveReadablePublicPath = (
+    rawPublicPath: string
+  ): NormalizedPublicPath | undefined => {
+    const normalizedPath = normalizeStoredPublicPath(rawPublicPath);
+    const resolution = resolveConfiguredVirtualDirectory(
+      normalizedPath.segments
+    );
+    return resolution
+      ? createResolvedPublicPath(normalizedPath, resolution)
+      : undefined;
+  };
+
+  const resolvePublicPathForPermission = (
+    rawPublicPath: string,
+    permission: StoragePermission
+  ): NormalizedPublicPath => {
+    const normalizedPath = normalizeStoredPublicPath(rawPublicPath);
+    const resolution = resolveConfiguredVirtualDirectory(
+      normalizedPath.segments
+    );
+
+    if (!resolution) {
+      if (!hasStorageRules) {
+        throw new Error(
+          'Subdirectories require storage rules to be configured'
+        );
+      }
+      throw new Error('Upload directory is not defined in storage rules');
+    }
+
+    if (!isPermissionAccepted(resolution.rule, permission)) {
+      throw new Error(getPermissionDeniedMessage(permission));
+    }
+
+    return createResolvedPublicPath(normalizedPath, resolution);
+  };
+
+  const isPublicPathAcceptedForPermission = (
+    rawPublicPath: string,
+    permission: StoragePermission
+  ): boolean => {
+    try {
+      const normalizedPath = resolveReadablePublicPath(rawPublicPath);
+      return normalizedPath
+        ? isPermissionAccepted(normalizedPath.storageRule, permission)
+        : false;
+    } catch {
+      return false;
+    }
+  };
 
   const getAvailableUploadDirectoryDetails =
     (): StorageDirectoryDescriptor[] => {
@@ -395,7 +625,7 @@ export const createStorageService = (
       }
 
       return Object.entries(storageRules)
-        .filter(([, rule]) => rule.readonly !== true)
+        .filter(([, rule]) => isPermissionAccepted(rule, 'store'))
         .map(([directoryPath, rule]) => ({
           directoryPath,
           ...createDirectoryDescriptionFields(rule.description),
@@ -421,47 +651,6 @@ export const createStorageService = (
 
     if (!(directoryPath in storageRules)) {
       throw new Error('Directory is not defined in storage rules');
-    }
-  };
-
-  const getMatchingRule = (directoryPath: string): MatchingRule | undefined => {
-    if (!storageRules) {
-      return undefined;
-    }
-
-    const matches = Object.entries(storageRules)
-      .filter(([candidatePath]) => {
-        if (candidatePath === '/') {
-          return true;
-        }
-        return (
-          directoryPath === candidatePath ||
-          directoryPath.startsWith(`${candidatePath}/`)
-        );
-      })
-      .sort((left, right) => right[0].length - left[0].length);
-
-    const matched = matches[0];
-    return matched
-      ? {
-          directoryPath: matched[0],
-          rule: matched[1],
-        }
-      : undefined;
-  };
-
-  const ensureUploadAllowed = (normalizedPath: NormalizedPublicPath) => {
-    if (!storageRules) {
-      return;
-    }
-
-    const matchingRule = getMatchingRule(normalizedPath.directoryPath);
-    if (!matchingRule) {
-      throw new Error('Upload directory is not defined in storage rules');
-    }
-
-    if (matchingRule.rule.readonly === true) {
-      throw new Error('Upload directory is read-only');
     }
   };
 
@@ -502,21 +691,17 @@ export const createStorageService = (
   };
 
   const isExpired = (
-    directoryPath: string,
+    expireSeconds: number | undefined,
     uploadedAtMs: number,
     nowMs: number
-  ): boolean => {
-    const matchingRule = getMatchingRule(directoryPath);
-    if (!matchingRule?.rule.expireSeconds) {
-      return false;
-    }
-    return uploadedAtMs + matchingRule.rule.expireSeconds * 1000 <= nowMs;
-  };
+  ): boolean =>
+    expireSeconds !== undefined && uploadedAtMs + expireSeconds * 1000 <= nowMs;
 
   const createVersionInfo = (
     normalizedPath: NormalizedPublicPath,
     version: InternalStoredFileVersion
   ): StoredFileVersionInfo => ({
+    ...normalizeStoredUploadMetadata(version),
     uploadId: version.uploadId,
     uploadedAt: version.uploadedAt,
     size: version.size,
@@ -530,6 +715,8 @@ export const createStorageService = (
     publicPath: normalizedPath.publicPath,
     displayPath: normalizedPath.displayPath,
     directoryPath: normalizedPath.directoryPath,
+    browseDirectoryPath: normalizedPath.virtualDirectoryPath,
+    browseRelativePath: normalizedPath.relativePath,
     fileName: normalizedPath.fileName,
     latestUploadId: latestVersion.uploadId,
     latestUploadedAt: latestVersion.uploadedAt,
@@ -540,6 +727,7 @@ export const createStorageService = (
     normalizedPath: NormalizedPublicPath,
     version: InternalStoredFileVersion
   ): StoredFileVersion => ({
+    ...normalizeStoredUploadMetadata(version),
     uploadId: version.uploadId,
     uploadedAt: version.uploadedAt,
     size: version.size,
@@ -567,7 +755,11 @@ export const createStorageService = (
     }
 
     if (
-      isExpired(normalizedPath.directoryPath, uploadIdParts.timestamp, nowMs)
+      isExpired(
+        normalizedPath.storageRule?.expireSeconds,
+        uploadIdParts.timestamp,
+        nowMs
+      )
     ) {
       logger.info(
         `Removing expired upload: ${normalizedPath.displayPath} (${uploadId})`
@@ -577,9 +769,10 @@ export const createStorageService = (
     }
 
     const metadataFilePath = path.join(versionDirectoryPath, 'metadata.json');
+    let metadata: StoredUploadMetadata;
     try {
       const metadataContent = await fs.readFile(metadataFilePath, 'utf-8');
-      JSON.parse(metadataContent);
+      metadata = parseStoredUploadMetadata(JSON.parse(metadataContent));
     } catch {
       return undefined;
     }
@@ -599,6 +792,7 @@ export const createStorageService = (
     }
 
     return {
+      ...metadata,
       uploadId,
       uploadedAt: dayjs.utc(uploadIdParts.timestamp).toISOString(),
       uploadedAtMs: uploadIdParts.timestamp,
@@ -679,19 +873,27 @@ export const createStorageService = (
   const createGroupInfo = (
     normalizedPath: NormalizedPublicPath,
     versions: InternalStoredFileVersion[]
-  ): StoredFileGroupInfo => {
+  ): InternalStoredFileGroupInfo => {
     const latestVersion = versions[0]!;
     return {
-      ...createGroupSummaryInfo(normalizedPath, latestVersion),
+      publicPath: normalizedPath.publicPath,
+      displayPath: normalizedPath.displayPath,
+      directoryPath: normalizedPath.directoryPath,
+      browseDirectoryPath: normalizedPath.virtualDirectoryPath,
+      browseRelativePath: normalizedPath.relativePath,
+      fileName: normalizedPath.fileName,
+      latestUploadId: latestVersion.uploadId,
+      latestUploadedAt: latestVersion.uploadedAt,
+      latestDownloadPath: `/api/files/${encodePublicPath(normalizedPath)}`,
       versions: versions.map((version) =>
         createVersionInfo(normalizedPath, version)
       ),
     };
   };
 
-  const toGroupSummaryInfo = (
-    group: StoredFileGroupInfo
-  ): StoredFileGroupSummaryInfo => ({
+  const toStoredFileGroupInfo = (
+    group: InternalStoredFileGroupInfo
+  ): StoredFileGroupInfo => ({
     publicPath: group.publicPath,
     displayPath: group.displayPath,
     directoryPath: group.directoryPath,
@@ -699,10 +901,27 @@ export const createStorageService = (
     latestUploadId: group.latestUploadId,
     latestUploadedAt: group.latestUploadedAt,
     latestDownloadPath: group.latestDownloadPath,
+    versions: group.versions,
   });
 
-  const scanLegacyStorage = async (): Promise<StoredFileGroupInfo[]> => {
-    const groups: StoredFileGroupInfo[] = [];
+  const toGroupSummaryInfo = (
+    group: InternalStoredFileGroupInfo
+  ): StoredFileGroupSummaryInfo => ({
+    publicPath: group.publicPath,
+    displayPath: group.displayPath,
+    directoryPath: group.directoryPath,
+    browseDirectoryPath: group.browseDirectoryPath,
+    browseRelativePath: group.browseRelativePath,
+    fileName: group.fileName,
+    latestUploadId: group.latestUploadId,
+    latestUploadedAt: group.latestUploadedAt,
+    latestDownloadPath: group.latestDownloadPath,
+  });
+
+  const scanLegacyStorage = async (): Promise<
+    InternalStoredFileGroupInfo[]
+  > => {
+    const groups: InternalStoredFileGroupInfo[] = [];
     const entries = await safeReadDirectory(storageRoot);
 
     for (const entry of entries) {
@@ -710,7 +929,10 @@ export const createStorageService = (
         continue;
       }
 
-      const normalizedPath = normalizePublicPath(entry.name);
+      const normalizedPath = resolveReadablePublicPath(entry.name);
+      if (!normalizedPath) {
+        continue;
+      }
       const groupDirectoryPath = path.join(storageRoot, entry.name);
       const versions = await scanGroupDirectory(
         normalizedPath,
@@ -735,7 +957,10 @@ export const createStorageService = (
         continue;
       }
 
-      const normalizedPath = normalizePublicPath(entry.name);
+      const normalizedPath = resolveReadablePublicPath(entry.name);
+      if (!normalizedPath) {
+        continue;
+      }
       const groupDirectoryPath = path.join(storageRoot, entry.name);
       const summary = await scanGroupDirectorySummary(
         normalizedPath,
@@ -757,7 +982,11 @@ export const createStorageService = (
   ): Promise<boolean> => {
     let normalizedPath: NormalizedPublicPath;
     try {
-      normalizedPath = normalizeStoredPublicPath(currentSegments.join('/'));
+      const resolvedPath = resolveReadablePublicPath(currentSegments.join('/'));
+      if (!resolvedPath) {
+        return false;
+      }
+      normalizedPath = resolvedPath;
     } catch {
       return false;
     }
@@ -791,8 +1020,8 @@ export const createStorageService = (
   const scanTreeStorage = async (
     currentPath: string,
     currentSegments: string[]
-  ): Promise<StoredFileGroupInfo[]> => {
-    const groups: StoredFileGroupInfo[] = [];
+  ): Promise<InternalStoredFileGroupInfo[]> => {
+    const groups: InternalStoredFileGroupInfo[] = [];
     const entries = await safeReadDirectory(currentPath);
 
     for (const entry of entries) {
@@ -804,9 +1033,12 @@ export const createStorageService = (
       const nextSegments = [...currentSegments, entry.name];
 
       if (await looksLikeGroupDirectory(nextPath, nextSegments)) {
-        const normalizedPath = normalizeStoredPublicPath(
+        const normalizedPath = resolveReadablePublicPath(
           nextSegments.join('/')
         );
+        if (!normalizedPath) {
+          continue;
+        }
         const versions = await scanGroupDirectory(normalizedPath, nextPath);
         if (versions.length > 0) {
           groups.push(createGroupInfo(normalizedPath, versions));
@@ -835,9 +1067,12 @@ export const createStorageService = (
       const nextSegments = [...currentSegments, entry.name];
 
       if (await looksLikeGroupDirectory(nextPath, nextSegments)) {
-        const normalizedPath = normalizeStoredPublicPath(
+        const normalizedPath = resolveReadablePublicPath(
           nextSegments.join('/')
         );
+        if (!normalizedPath) {
+          continue;
+        }
         const summary = await scanGroupDirectorySummary(
           normalizedPath,
           nextPath
@@ -860,7 +1095,7 @@ export const createStorageService = (
     return groups;
   };
 
-  const scanAllGroups = async (): Promise<StoredFileGroupInfo[]> => {
+  const scanAllGroups = async (): Promise<InternalStoredFileGroupInfo[]> => {
     const groups = hasStorageRules
       ? await scanTreeStorage(storageRoot, [])
       : await scanLegacyStorage();
@@ -888,7 +1123,10 @@ export const createStorageService = (
     rawPublicPath: string,
     uploadId: string | undefined
   ): Promise<StoredFileVersion | undefined> => {
-    const normalizedPath = normalizePublicPath(rawPublicPath);
+    const normalizedPath = resolveReadablePublicPath(rawPublicPath);
+    if (!normalizedPath) {
+      return undefined;
+    }
     const groupDirectoryPath = getGroupDirectoryPath(normalizedPath);
     const versions = await scanGroupDirectory(
       normalizedPath,
@@ -922,13 +1160,6 @@ export const createStorageService = (
     return uploadId;
   };
 
-  const resolveBrowseDirectoryPath = (
-    groupDirectoryPath: string
-  ): string | undefined => {
-    const matchingRule = getMatchingRule(groupDirectoryPath);
-    return matchingRule?.directoryPath;
-  };
-
   return {
     initialize: async () => {
       await fs.mkdir(storageRoot, { recursive: true });
@@ -942,21 +1173,16 @@ export const createStorageService = (
 
     getAvailableUploadDirectoryDetails,
 
+    isPublicPathAcceptedForPermission,
+
     listBrowseDirectories: async () => {
       const groups = await scanAllGroupSummaries();
       const fileGroupCounts = new Map<string, number>();
 
       groups.forEach((group) => {
-        const browseDirectoryPath = resolveBrowseDirectoryPath(
-          group.directoryPath
-        );
-        if (!browseDirectoryPath) {
-          return;
-        }
-
         fileGroupCounts.set(
-          browseDirectoryPath,
-          (fileGroupCounts.get(browseDirectoryPath) ?? 0) + 1
+          group.browseDirectoryPath,
+          (fileGroupCounts.get(group.browseDirectoryPath) ?? 0) + 1
         );
       });
 
@@ -965,7 +1191,7 @@ export const createStorageService = (
         ...createDirectoryDescriptionFields(
           storageRules?.[directoryPath]?.description
         ),
-        readonly: storageRules?.[directoryPath]?.readonly === true,
+        accept: getAcceptedPermissions(storageRules?.[directoryPath]),
         fileGroupCount: fileGroupCounts.get(directoryPath) ?? 0,
       }));
     },
@@ -976,13 +1202,15 @@ export const createStorageService = (
 
       const groups = await scanAllGroupSummaries();
       return groups.filter(
-        (group) =>
-          resolveBrowseDirectoryPath(group.directoryPath) === directoryPath
+        (group) => group.browseDirectoryPath === directoryPath
       );
     },
 
     listFileGroupVersions: async (rawPublicPath: string) => {
-      const normalizedPath = normalizePublicPath(rawPublicPath);
+      const normalizedPath = resolveReadablePublicPath(rawPublicPath);
+      if (!normalizedPath) {
+        return [];
+      }
       const groupDirectoryPath = getGroupDirectoryPath(normalizedPath);
       const versions = await scanGroupDirectory(
         normalizedPath,
@@ -1016,8 +1244,13 @@ export const createStorageService = (
             if (group.latestUploadId.toLowerCase().includes(term)) {
               return true;
             }
-            return group.versions.some((version) =>
-              version.uploadId.toLowerCase().includes(term)
+            return group.versions.some(
+              (version) =>
+                version.uploadId.toLowerCase().includes(term) ||
+                version.uploadedBy?.toLowerCase().includes(term) === true ||
+                version.tags?.some((tag) =>
+                  tag.toLowerCase().includes(term)
+                ) === true
             );
           })
         )
@@ -1031,22 +1264,31 @@ export const createStorageService = (
 
       return {
         totalCount: groups.length,
-        items: groups.slice(safeSkip, safeSkip + safeTake),
+        items: groups
+          .slice(safeSkip, safeSkip + safeTake)
+          .map((group) => toStoredFileGroupInfo(group)),
       };
     },
 
-    storeFile: async (rawPublicPath: string, fileContent: Buffer) => {
-      const normalizedPath = normalizePublicPath(rawPublicPath);
-      ensureUploadAllowed(normalizedPath);
+    storeFile: async (
+      rawPublicPath: string,
+      fileContent: Buffer,
+      metadata?: StoredUploadMetadata
+    ) => {
+      const normalizedPath = resolvePublicPathForPermission(
+        rawPublicPath,
+        'store'
+      );
 
       const groupDirectoryPath = getGroupDirectoryPath(normalizedPath);
       const uploadId = await createUploadId(normalizedPath);
       const versionDirectoryPath = path.join(groupDirectoryPath, uploadId);
+      const normalizedMetadata = normalizeStoredUploadMetadata(metadata);
 
       await fs.mkdir(versionDirectoryPath, { recursive: true });
       await fs.writeFile(
         path.join(versionDirectoryPath, 'metadata.json'),
-        '{}'
+        JSON.stringify(normalizedMetadata)
       );
       await fs.writeFile(
         path.join(versionDirectoryPath, normalizedPath.fileName),
@@ -1062,6 +1304,7 @@ export const createStorageService = (
       }
 
       return {
+        ...normalizeStoredUploadMetadata(storedVersion),
         uploadId: storedVersion.uploadId,
         uploadedAt: storedVersion.uploadedAt,
         size: storedVersion.size,
@@ -1072,6 +1315,30 @@ export const createStorageService = (
         latestDownloadPath: storedVersion.latestDownloadPath,
         versionDownloadPath: storedVersion.versionDownloadPath,
       };
+    },
+
+    deleteFileVersion: async (rawPublicPath: string, uploadId: string) => {
+      if (!parseUploadId(uploadId)) {
+        return false;
+      }
+
+      const normalizedPath = resolvePublicPathForPermission(
+        rawPublicPath,
+        'delete'
+      );
+      const storedVersion = await resolveStoredVersion(
+        normalizedPath.publicPath,
+        uploadId
+      );
+      if (!storedVersion) {
+        return false;
+      }
+
+      await removeVersionDirectory(
+        path.dirname(storedVersion.absoluteFilePath),
+        storageRoot
+      );
+      return true;
     },
 
     getLatestFileVersion: async (rawPublicPath: string) =>

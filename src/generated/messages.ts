@@ -215,6 +215,20 @@ export const messages = {
     fallback: "Upload directory" 
   } as SimpleMessageItem,
   /**
+   * UPLOAD_TAGS ==> "Upload tags"
+   */
+  UPLOAD_TAGS: { 
+    key: "UPLOAD_TAGS", 
+    fallback: "Upload tags" 
+  } as SimpleMessageItem,
+  /**
+   * UPLOAD_TAGS_HELPER ==> "Separate tags with spaces, commas, or semicolons"
+   */
+  UPLOAD_TAGS_HELPER: { 
+    key: "UPLOAD_TAGS_HELPER", 
+    fallback: "Separate tags with spaces, commas, or semicolons" 
+  } as SimpleMessageItem,
+  /**
    * PLEASE_SIGN_IN ==> "Please sign in to continue"
    */
   PLEASE_SIGN_IN: { 
@@ -628,11 +642,11 @@ export const messages = {
     fallback: "Error loading files: {error}" 
   } as MessageItem<{ error: string }>,
   /**
-   * NO_FILES_FOUND ==> "No files found in storage."
+   * NO_FILES_FOUND ==> "No virtual directories found in storage."
    */
   NO_FILES_FOUND: { 
     key: "NO_FILES_FOUND", 
-    fallback: "No files found in storage." 
+    fallback: "No virtual directories found in storage." 
   } as SimpleMessageItem,
   /**
    * FILES_HEADER ==> "Files"
@@ -642,12 +656,12 @@ export const messages = {
     fallback: "Files" 
   } as SimpleMessageItem,
   /**
-   * FILE_GROUPS_HEADER ==> "Directories"
+   * FILE_GROUPS_HEADER ==> "Directories ({count:number})"
    */
   FILE_GROUPS_HEADER: { 
     key: "FILE_GROUPS_HEADER", 
-    fallback: "Directories" 
-  } as SimpleMessageItem,
+    fallback: "Directories ({count:number})" 
+  } as MessageItem<{ count: number }>,
   /**
    * FILE_GROUPS_COUNT ==> "{count:number} file groups"
    */
@@ -746,6 +760,20 @@ export const messages = {
     key: "FILE_SIZE_LABEL", 
     fallback: "Size: {size}" 
   } as MessageItem<{ size: string }>,
+  /**
+   * VERSION_DETAILS_LABEL ==> "Upload ID: {uploadId} Size: {size}"
+   */
+  VERSION_DETAILS_LABEL: { 
+    key: "VERSION_DETAILS_LABEL", 
+    fallback: "Upload ID: {uploadId} Size: {size}" 
+  } as MessageItem<{ uploadId: string; size: string }>,
+  /**
+   * UPLOADED_BY_LABEL ==> "Upload: {uploadedBy}"
+   */
+  UPLOADED_BY_LABEL: { 
+    key: "UPLOADED_BY_LABEL", 
+    fallback: "Upload: {uploadedBy}" 
+  } as MessageItem<{ uploadedBy: string }>,
   /**
    * VERSION_COUNT ==> "Versions: {count:number}"
    */
@@ -1186,6 +1214,34 @@ export const messages = {
   DELETE: { 
     key: "DELETE", 
     fallback: "Delete" 
+  } as SimpleMessageItem,
+  /**
+   * FILE_ACTIONS ==> "Actions"
+   */
+  FILE_ACTIONS: { 
+    key: "FILE_ACTIONS", 
+    fallback: "Actions" 
+  } as SimpleMessageItem,
+  /**
+   * CONFIRM_FILE_DELETION_TITLE ==> "Delete file revision"
+   */
+  CONFIRM_FILE_DELETION_TITLE: { 
+    key: "CONFIRM_FILE_DELETION_TITLE", 
+    fallback: "Delete file revision" 
+  } as SimpleMessageItem,
+  /**
+   * CONFIRM_DELETE_FILE_VERSION ==> "Are you sure you want to delete revision "{uploadId}" of "{path}"? This action cannot be undone."
+   */
+  CONFIRM_DELETE_FILE_VERSION: { 
+    key: "CONFIRM_DELETE_FILE_VERSION", 
+    fallback: "Are you sure you want to delete revision \"{uploadId}\" of \"{path}\"? This action cannot be undone." 
+  } as MessageItem<{ uploadId: string; path: string }>,
+  /**
+   * FILE_VERSION_DELETE_FAILED ==> "Failed to delete file revision"
+   */
+  FILE_VERSION_DELETE_FAILED: { 
+    key: "FILE_VERSION_DELETE_FAILED", 
+    fallback: "Failed to delete file revision" 
   } as SimpleMessageItem,
   /**
    * CANCEL ==> "Cancel"

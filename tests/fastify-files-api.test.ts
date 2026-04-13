@@ -95,11 +95,28 @@ describe('Fastify files and upload API', () => {
       }
     );
 
+  const deleteFileVersion = async (
+    publicPath: string,
+    headers: Record<string, string> = {}
+  ) =>
+    await fetch(
+      `http://localhost:${serverPort}/api/files/${publicPath
+        .split('/')
+        .map((segment) => encodeURIComponent(segment))
+        .join('/')}`,
+      {
+        method: 'DELETE',
+        headers,
+      }
+    );
+
   test('should upload, list, and download files without authentication', async () => {
     const server = await startServer('none');
 
     try {
-      const uploadResponse = await uploadFile('report.txt', 'hello uplodah');
+      const uploadResponse = await uploadFile('report.txt', 'hello uplodah', {
+        'X-UPLODAH-TAGS': 'public, latest',
+      });
       expect(uploadResponse.status).toBe(201);
       const uploadData = await uploadResponse.json();
       expect(uploadData.path).toBe('report.txt');
@@ -115,6 +132,8 @@ describe('Fastify files and upload API', () => {
       expect(listData.totalCount).toBe(1);
       expect(listData.items[0].publicPath).toBe('report.txt');
       expect(listData.items[0].versions[0].uploadId).toBe(uploadData.uploadId);
+      expect(listData.items[0].versions[0].uploadedBy).toBe('anonymous');
+      expect(listData.items[0].versions[0].tags).toEqual(['public', 'latest']);
 
       const latestResponse = await fetch(
         `http://localhost:${serverPort}/api/files/report.txt`
@@ -127,6 +146,65 @@ describe('Fastify files and upload API', () => {
       );
       expect(specificResponse.status).toBe(200);
       expect(await specificResponse.text()).toBe('hello uplodah');
+    } finally {
+      await server.close();
+    }
+  }, 30000);
+
+  test('should delete only specific file versions and reject latest deletion', async () => {
+    const server = await startServer('none', {
+      storage: {
+        '/incoming': {},
+      },
+    });
+
+    try {
+      const firstUpload = await uploadFile('incoming/report.txt', 'first');
+      expect(firstUpload.status).toBe(201);
+      const firstUploadData = await firstUpload.json();
+
+      const secondUpload = await uploadFile('incoming/report.txt', 'second');
+      expect(secondUpload.status).toBe(201);
+      const secondUploadData = await secondUpload.json();
+
+      const deleteLatestResponse = await deleteFileVersion(
+        'incoming/report.txt'
+      );
+      expect(deleteLatestResponse.status).toBe(400);
+      expect(await deleteLatestResponse.json()).toEqual({
+        error: 'Deleting the latest file version requires an upload ID',
+      });
+
+      const deleteSpecificResponse = await deleteFileVersion(
+        `incoming/report.txt/${secondUploadData.uploadId}`
+      );
+      expect(deleteSpecificResponse.status).toBe(200);
+      expect(await deleteSpecificResponse.json()).toEqual({
+        message: 'File deleted successfully',
+      });
+
+      const latestResponse = await fetch(
+        `http://localhost:${serverPort}/api/files/incoming/report.txt`
+      );
+      expect(latestResponse.status).toBe(200);
+      expect(await latestResponse.text()).toBe('first');
+
+      const deletedResponse = await fetch(
+        `http://localhost:${serverPort}/api/files/incoming/report.txt/${secondUploadData.uploadId}`
+      );
+      expect(deletedResponse.status).toBe(404);
+
+      const deleteLastResponse = await deleteFileVersion(
+        `incoming/report.txt/${firstUploadData.uploadId}`
+      );
+      expect(deleteLastResponse.status).toBe(200);
+
+      const listResponse = await fetch(
+        `http://localhost:${serverPort}/api/files?skip=0&take=20`
+      );
+      expect(listResponse.status).toBe(200);
+      const listData = await listResponse.json();
+      expect(listData.totalCount).toBe(0);
     } finally {
       await server.close();
     }
@@ -153,8 +231,132 @@ describe('Fastify files and upload API', () => {
       const publishCookie = await login('publishuser', 'publishpass');
       const publishUpload = await uploadFile('restricted.txt', 'allowed', {
         Cookie: publishCookie,
+        'X-UPLODAH-TAGS': 'release, signed',
       });
       expect(publishUpload.status).toBe(201);
+
+      const listResponse = await fetch(
+        `http://localhost:${serverPort}/api/files?skip=0&take=20`
+      );
+      expect(listResponse.status).toBe(200);
+      const listData = await listResponse.json();
+      expect(listData.items[0].versions[0].uploadedBy).toBe('publishuser');
+      expect(listData.items[0].versions[0].tags).toEqual(['release', 'signed']);
+    } finally {
+      await server.close();
+    }
+  }, 30000);
+
+  test('should enforce delete authentication in publish mode', async () => {
+    const server = await startServer('publish');
+
+    try {
+      const publishCookie = await login('publishuser', 'publishpass');
+      const uploadResponse = await uploadFile('restricted.txt', 'allowed', {
+        Cookie: publishCookie,
+      });
+      expect(uploadResponse.status).toBe(201);
+      const uploadData = await uploadResponse.json();
+
+      const anonymousDelete = await deleteFileVersion(
+        `restricted.txt/${uploadData.uploadId}`
+      );
+      expect(anonymousDelete.status).toBe(401);
+
+      const readCookie = await login('readuser', 'readpass');
+      const readDelete = await deleteFileVersion(
+        `restricted.txt/${uploadData.uploadId}`,
+        {
+          Cookie: readCookie,
+        }
+      );
+      expect(readDelete.status).toBe(403);
+
+      const publishDelete = await deleteFileVersion(
+        `restricted.txt/${uploadData.uploadId}`,
+        {
+          Cookie: publishCookie,
+        }
+      );
+      expect(publishDelete.status).toBe(200);
+    } finally {
+      await server.close();
+    }
+  }, 30000);
+
+  test('should allow deletion only for the uploader or an admin in publish mode', async () => {
+    const server = await startServer('publish');
+
+    try {
+      const publishCookie = await login('publishuser', 'publishpass');
+      const uploadResponse = await uploadFile('owned-by-other.txt', 'payload', {
+        Cookie: publishCookie,
+      });
+      expect(uploadResponse.status).toBe(201);
+      const uploadData = await uploadResponse.json();
+
+      const versionDirectoryPath = path.join(
+        testStorageDir,
+        'owned-by-other.txt',
+        uploadData.uploadId
+      );
+      await fs.writeFile(
+        path.join(versionDirectoryPath, 'metadata.json'),
+        JSON.stringify({ uploadedBy: 'other-user' })
+      );
+
+      const uploaderMismatchDelete = await deleteFileVersion(
+        `owned-by-other.txt/${uploadData.uploadId}`,
+        {
+          Cookie: publishCookie,
+        }
+      );
+      expect(uploaderMismatchDelete.status).toBe(403);
+      expect(await uploaderMismatchDelete.json()).toEqual({
+        error: 'Delete permission required',
+      });
+
+      const adminCookie = await login('adminuser', 'adminpass');
+      const adminDelete = await deleteFileVersion(
+        `owned-by-other.txt/${uploadData.uploadId}`,
+        {
+          Cookie: adminCookie,
+        }
+      );
+      expect(adminDelete.status).toBe(200);
+    } finally {
+      await server.close();
+    }
+  }, 30000);
+
+  test('should allow a read-only user to delete their own uploaded revision', async () => {
+    const server = await startServer('publish');
+
+    try {
+      const uploadId = '20260408_101112_345';
+      const versionDirectoryPath = path.join(
+        testStorageDir,
+        'owned-by-reader.txt',
+        uploadId
+      );
+      await fs.mkdir(versionDirectoryPath, { recursive: true });
+      await fs.writeFile(
+        path.join(versionDirectoryPath, 'metadata.json'),
+        JSON.stringify({ uploadedBy: 'readuser' })
+      );
+      await fs.writeFile(
+        path.join(versionDirectoryPath, 'owned-by-reader.txt'),
+        'reader-owned'
+      );
+
+      const readCookie = await login('readuser', 'readpass');
+      const deleteResponse = await deleteFileVersion(
+        `owned-by-reader.txt/${uploadId}`,
+        {
+          Cookie: readCookie,
+        }
+      );
+      expect(deleteResponse.status).toBe(200);
     } finally {
       await server.close();
     }
@@ -206,14 +408,44 @@ describe('Fastify files and upload API', () => {
     }
   }, 30000);
 
+  test('should reject delete requests for directories without delete accept', async () => {
+    const server = await startServer('none', {
+      storage: {
+        '/store-only': {
+          accept: ['store'],
+        },
+      },
+    });
+
+    try {
+      const uploadResponse = await uploadFile(
+        'store-only/report.txt',
+        'locked'
+      );
+      expect(uploadResponse.status).toBe(201);
+      const uploadData = await uploadResponse.json();
+
+      const deleteResponse = await deleteFileVersion(
+        `store-only/report.txt/${uploadData.uploadId}`
+      );
+      expect(deleteResponse.status).toBe(403);
+      expect(await deleteResponse.json()).toEqual({
+        error: 'Upload directory does not allow deletions',
+      });
+    } finally {
+      await server.close();
+    }
+  }, 30000);
+
   test('should enforce storage rules and expose writable directories', async () => {
     const server = await startServer('none', {
       storage: {
         '/incoming': {
           description: 'Incoming artifacts',
+          accept: ['store'],
         },
-        '/readonly': {
-          readonly: true,
+        '/delete-only': {
+          accept: ['delete'],
         },
       },
     });
@@ -235,8 +467,11 @@ describe('Fastify files and upload API', () => {
       const rootUpload = await uploadFile('root.txt', 'blocked');
       expect(rootUpload.status).toBe(400);
 
-      const readonlyUpload = await uploadFile('readonly/file.txt', 'blocked');
-      expect(readonlyUpload.status).toBe(403);
+      const deleteOnlyUpload = await uploadFile(
+        'delete-only/file.txt',
+        'blocked'
+      );
+      expect(deleteOnlyUpload.status).toBe(403);
 
       const allowedUpload = await uploadFile('incoming/file.txt', 'allowed');
       expect(allowedUpload.status).toBe(201);

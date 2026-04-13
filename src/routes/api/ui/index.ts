@@ -24,6 +24,10 @@ import {
   StoredFileGroupSummaryInfo,
   StoredFileVersionInfo,
 } from '../../../services/storageService';
+import {
+  canDeleteStoredVersion,
+  filterUploadDirectoryDetailsByUserAccess,
+} from '../../../utils/storageAccess';
 
 /**
  * Configuration for UI routes
@@ -41,8 +45,6 @@ export interface UiRoutesConfig {
     port: number;
     isHttps: boolean;
   };
-  storageDirectories: string[];
-  storageDirectoryDetails: StorageDirectoryDescriptor[];
 }
 
 /**
@@ -100,7 +102,7 @@ export interface BrowseFileGroupsResponse {
  */
 export interface BrowseVersionsResponse {
   publicPath: string;
-  items: StoredFileVersionInfo[];
+  items: Array<StoredFileVersionInfo & { canDelete: boolean }>;
 }
 
 /**
@@ -251,8 +253,6 @@ export const registerUiRoutes = async (
     logger,
     realm,
     serverUrl,
-    storageDirectories,
-    storageDirectoryDetails,
   } = config;
 
   // Create session-only auth middleware
@@ -266,6 +266,49 @@ export const registerUiRoutes = async (
   const generalAuthPreHandler = generalAuthHandler
     ? ([generalAuthHandler] as any)
     : [];
+  const resolveCurrentUser = async (
+    request: FastifyRequest
+  ): Promise<ConfigResponse['currentUser']> => {
+    const sessionToken = request.cookies?.sessionToken;
+    if (sessionToken) {
+      const session = await sessionService.validateSession(sessionToken);
+      if (session) {
+        return {
+          username: session.username,
+          role: session.role,
+          authenticated: true,
+        };
+      }
+    }
+
+    const authHeader = request.headers.authorization;
+    if (
+      authHeader &&
+      typeof authHeader === 'string' &&
+      authHeader.startsWith('Basic ')
+    ) {
+      const credentials = authHeader.substring(6);
+      const decodedCredentials = Buffer.from(credentials, 'base64').toString(
+        'utf-8'
+      );
+      const colonIndex = decodedCredentials.indexOf(':');
+
+      if (colonIndex !== -1) {
+        const username = decodedCredentials.substring(0, colonIndex);
+        const password = decodedCredentials.substring(colonIndex + 1);
+        const user = await userService.validateApiPassword(username, password);
+        if (user) {
+          return {
+            username: user.username,
+            role: user.role,
+            authenticated: true,
+          };
+        }
+      }
+    }
+
+    return null;
+  };
 
   // POST /api/ui/config - Application configuration (public endpoint)
   fastify.post(
@@ -275,73 +318,37 @@ export const registerUiRoutes = async (
         let currentUser = null;
 
         try {
-          // Check session authentication first (Cookie-based)
-          const sessionToken = request.cookies?.sessionToken;
-          if (sessionToken) {
-            const session = await sessionService.validateSession(sessionToken);
-            if (session) {
-              currentUser = {
-                username: session.username,
-                role: session.role,
-                authenticated: true,
-              };
-            }
-          }
-
-          // If no session, check Basic authentication (API clients)
-          if (!currentUser) {
-            const authHeader = request.headers.authorization;
-            if (
-              authHeader &&
-              typeof authHeader === 'string' &&
-              authHeader.startsWith('Basic ')
-            ) {
-              const credentials = authHeader.substring(6);
-              const decodedCredentials = Buffer.from(
-                credentials,
-                'base64'
-              ).toString('utf-8');
-              const colonIndex = decodedCredentials.indexOf(':');
-
-              if (colonIndex !== -1) {
-                const username = decodedCredentials.substring(0, colonIndex);
-                const password = decodedCredentials.substring(colonIndex + 1);
-
-                const user = await userService.validateApiPassword(
-                  username,
-                  password
-                );
-                if (user) {
-                  currentUser = {
-                    username: user.username,
-                    role: user.role,
-                    authenticated: true,
-                  };
-                }
-              }
-            }
-          }
+          currentUser = await resolveCurrentUser(request);
         } catch (error) {
           logger.error(
             `Error checking authentication for /api/ui/config: ${error}`
           );
         }
 
+        const authMode = authService.getAuthMode();
+        const availableUploadDirectoryDetails =
+          filterUploadDirectoryDetailsByUserAccess({
+            authMode,
+            currentUser,
+            directories: storageService.getAvailableUploadDirectoryDetails(),
+          });
         const response: ConfigResponse = {
           realm: realm,
           name: packageName,
           version: version,
           git_commit_hash: git_commit_hash,
           serverUrl: serverUrl,
-          authMode: authService.getAuthMode(),
+          authMode: authMode,
           authEnabled: {
             general: authService.isAuthRequired('general'),
             publish: authService.isAuthRequired('publish'),
             admin: authService.isAuthRequired('admin'),
           },
           currentUser: currentUser,
-          storageDirectories,
-          storageDirectoryDetails,
+          storageDirectories: availableUploadDirectoryDetails.map(
+            (directory) => directory.directoryPath
+          ),
+          storageDirectoryDetails: availableUploadDirectoryDetails,
         };
 
         return reply.send(response);
@@ -419,9 +426,35 @@ export const registerUiRoutes = async (
       }
 
       try {
+        const authMode = authService.getAuthMode();
+        const authRequest = request as AuthenticatedFastifyRequest;
+        const currentUser = authRequest.user
+          ? {
+              username: authRequest.user.username,
+              role: authRequest.user.role,
+              authenticated: true,
+            }
+          : await resolveCurrentUser(request);
+        const canDeleteFromDirectory =
+          storageService.isPublicPathAcceptedForPermission(
+            query.publicPath,
+            'delete'
+          );
+        const versions = await storageService.listFileGroupVersions(
+          query.publicPath
+        );
         const response: BrowseVersionsResponse = {
           publicPath: query.publicPath,
-          items: await storageService.listFileGroupVersions(query.publicPath),
+          items: versions.map((version) => ({
+            ...version,
+            canDelete:
+              canDeleteFromDirectory &&
+              canDeleteStoredVersion({
+                authMode,
+                currentUser,
+                uploadedBy: version.uploadedBy,
+              }),
+          })),
         };
         return reply.send(response);
       } catch (error) {

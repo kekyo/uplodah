@@ -8,6 +8,7 @@ import { ReaderWriterLock } from 'async-primitives';
 import { Logger } from '../../../types';
 import { AuthService } from '../../../services/authService';
 import {
+  AuthenticatedFastifyRequest,
   createConditionalHybridAuthMiddleware,
   FastifyAuthConfig,
 } from '../../../middleware/fastifyAuth';
@@ -18,6 +19,7 @@ import {
 } from '../../../services/storageService';
 import { createUrlResolver } from '../../../utils/urlResolver';
 import { streamFile } from '../../../utils/fileStreaming';
+import { canDeleteStoredVersion } from '../../../utils/storageAccess';
 
 /**
  * Files routes configuration.
@@ -68,6 +70,12 @@ export const registerFilesRoutes = async (
     ? createConditionalHybridAuthMiddleware(authConfig)
     : null;
   const authPreHandler = authHandler ? ([authHandler] as any) : [];
+  const deleteAuthHandler = authService.isAuthRequired('publish')
+    ? createConditionalHybridAuthMiddleware(authConfig)
+    : null;
+  const deleteAuthPreHandler = deleteAuthHandler
+    ? ([deleteAuthHandler] as any)
+    : [];
 
   fastify.get(
     '/',
@@ -156,6 +164,112 @@ export const registerFilesRoutes = async (
         }
 
         logger.error(`Failed to serve file ${request.url}: ${error}`);
+        return reply.status(500).send({ error: 'Internal server error' });
+      }
+    }
+  );
+
+  fastify.delete(
+    '/*',
+    {
+      preHandler: deleteAuthPreHandler,
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const rawPath = (request.params as { '*': string })['*'];
+      if (!rawPath) {
+        return reply.status(400).send({ error: 'File path is required' });
+      }
+
+      try {
+        const decodedPath = decodeWildcardPath(rawPath);
+        const authMode = authService.getAuthMode();
+        const authRequest = request as AuthenticatedFastifyRequest;
+        const currentUser = authRequest.user
+          ? {
+              username: authRequest.user.username,
+              role: authRequest.user.role,
+              authenticated: true,
+            }
+          : null;
+        let latestVersion;
+        try {
+          latestVersion =
+            await storageService.getLatestFileVersion(decodedPath);
+        } catch (error) {
+          if (error instanceof URIError) {
+            throw error;
+          }
+          latestVersion = undefined;
+        }
+
+        if (latestVersion) {
+          return reply.status(400).send({
+            error: 'Deleting the latest file version requires an upload ID',
+          });
+        }
+
+        const segments = decodedPath.split('/');
+        if (segments.length < 2) {
+          return reply.status(400).send({
+            error: 'Deleting the latest file version requires an upload ID',
+          });
+        }
+
+        const uploadId = segments[segments.length - 1];
+        const filePath = segments.slice(0, -1).join('/');
+        if (!uploadId || filePath.length === 0) {
+          return reply.status(400).send({
+            error: 'Deleting the latest file version requires an upload ID',
+          });
+        }
+
+        const targetVersion = await storageService.getFileVersion(
+          filePath,
+          uploadId
+        );
+        if (!targetVersion) {
+          return reply.status(404).send({ error: 'File not found' });
+        }
+
+        if (
+          !canDeleteStoredVersion({
+            authMode,
+            currentUser,
+            uploadedBy: targetVersion.uploadedBy,
+          })
+        ) {
+          return reply
+            .status(403)
+            .send({ error: 'Delete permission required' });
+        }
+
+        const handle = await locker.writeLock();
+        let deleted = false;
+        try {
+          deleted = await storageService.deleteFileVersion(filePath, uploadId);
+        } finally {
+          handle.release();
+        }
+        if (!deleted) {
+          return reply.status(404).send({ error: 'File not found' });
+        }
+
+        return reply.send({ message: 'File deleted successfully' });
+      } catch (error: any) {
+        if (error instanceof URIError) {
+          return reply.status(400).send({ error: 'File path is invalid' });
+        }
+
+        if (error?.message === 'Upload directory does not allow deletions') {
+          return reply.status(403).send({ error: error.message });
+        }
+
+        if (error instanceof Error) {
+          logger.warn(`Delete rejected for ${request.url}: ${error.message}`);
+          return reply.status(400).send({ error: error.message });
+        }
+
+        logger.error(`Failed to delete file ${request.url}: ${error}`);
         return reply.status(500).send({ error: 'Internal server error' });
       }
     }

@@ -134,6 +134,28 @@ describe('Fastify UI backend API', () => {
         publish: true,
         admin: true,
       });
+      expect(data.storageDirectories).toEqual(['/']);
+      expect(data.storageDirectoryDetails).toEqual([
+        {
+          directoryPath: '/',
+        },
+      ]);
+    } finally {
+      await server.close();
+    }
+  }, 30000);
+
+  test('should hide upload directories from unauthenticated UI config in full mode', async () => {
+    const server = await startServer('full');
+
+    try {
+      const response = await postJson('/api/ui/config', {});
+      expect(response.status).toBe(200);
+
+      const data = await response.json();
+      expect(data.currentUser).toBeNull();
+      expect(data.storageDirectories).toEqual([]);
+      expect(data.storageDirectoryDetails).toEqual([]);
     } finally {
       await server.close();
     }
@@ -166,6 +188,7 @@ describe('Fastify UI backend API', () => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/octet-stream',
+            'X-UPLODAH-TAGS': 'flashcap, nightly',
           },
           body: Buffer.from('flashcap'),
         }
@@ -181,13 +204,13 @@ describe('Fastify UI backend API', () => {
         items: [
           {
             directoryPath: '/',
-            readonly: false,
+            accept: ['store', 'delete'],
             fileGroupCount: 0,
           },
           {
             directoryPath: '/tmp',
             description: 'Temporary artifacts',
-            readonly: false,
+            accept: ['store', 'delete'],
             fileGroupCount: 1,
           },
         ],
@@ -204,6 +227,8 @@ describe('Fastify UI backend API', () => {
             publicPath: 'tmp/flashcap.nupkg',
             displayPath: '/tmp/flashcap.nupkg',
             directoryPath: '/tmp',
+            browseDirectoryPath: '/tmp',
+            browseRelativePath: 'flashcap.nupkg',
             fileName: 'flashcap.nupkg',
             latestUploadId: uploadData.uploadId,
             latestUploadedAt: uploadData.uploadedAt,
@@ -217,20 +242,55 @@ describe('Fastify UI backend API', () => {
       );
       expect(versionsResponse.status).toBe(200);
       const versionsData = await versionsResponse.json();
-      expect(versionsData.publicPath).toBe('tmp/flashcap.nupkg');
-      expect(versionsData.items[0].uploadId).toBe(uploadData.uploadId);
+      expect(versionsData).toEqual({
+        publicPath: 'tmp/flashcap.nupkg',
+        items: [
+          {
+            uploadId: uploadData.uploadId,
+            uploadedAt: uploadData.uploadedAt,
+            size: 8,
+            versionDownloadPath: `/api/files/tmp/flashcap.nupkg/${uploadData.uploadId}`,
+            canDelete: true,
+            uploadedBy: 'anonymous',
+            tags: ['flashcap', 'nightly'],
+          },
+        ],
+      });
 
       const searchResponse = await fetch(
-        `http://localhost:${serverPort}/api/ui/browse/search?q=flashcap`
+        `http://localhost:${serverPort}/api/ui/browse/search?q=nightly`
       );
       expect(searchResponse.status).toBe(200);
       expect(await searchResponse.json()).toEqual({
-        query: 'flashcap',
+        query: 'nightly',
         items: [
           {
             publicPath: 'tmp/flashcap.nupkg',
             displayPath: '/tmp/flashcap.nupkg',
             directoryPath: '/tmp',
+            browseDirectoryPath: '/tmp',
+            browseRelativePath: 'flashcap.nupkg',
+            fileName: 'flashcap.nupkg',
+            latestUploadId: uploadData.uploadId,
+            latestUploadedAt: uploadData.uploadedAt,
+            latestDownloadPath: '/api/files/tmp/flashcap.nupkg',
+          },
+        ],
+      });
+
+      const uploaderSearchResponse = await fetch(
+        `http://localhost:${serverPort}/api/ui/browse/search?q=anonymous`
+      );
+      expect(uploaderSearchResponse.status).toBe(200);
+      expect(await uploaderSearchResponse.json()).toEqual({
+        query: 'anonymous',
+        items: [
+          {
+            publicPath: 'tmp/flashcap.nupkg',
+            displayPath: '/tmp/flashcap.nupkg',
+            directoryPath: '/tmp',
+            browseDirectoryPath: '/tmp',
+            browseRelativePath: 'flashcap.nupkg',
             fileName: 'flashcap.nupkg',
             latestUploadId: uploadData.uploadId,
             latestUploadedAt: uploadData.uploadedAt,
@@ -290,7 +350,7 @@ describe('Fastify UI backend API', () => {
           {
             directoryPath: '/runs',
             description: 'Workflow artifacts',
-            readonly: false,
+            accept: ['store', 'delete'],
             fileGroupCount: 1,
           },
         ],
@@ -308,6 +368,9 @@ describe('Fastify UI backend API', () => {
             displayPath:
               '/runs/24224477918/attempt-2/polyfit-manuals/RJK.PolyFit.Manuals.zip',
             directoryPath: '/runs/24224477918/attempt-2/polyfit-manuals',
+            browseDirectoryPath: '/runs',
+            browseRelativePath:
+              '24224477918/attempt-2/polyfit-manuals/RJK.PolyFit.Manuals.zip',
             fileName: 'RJK.PolyFit.Manuals.zip',
             latestUploadId: uploadData.uploadId,
             latestUploadedAt: uploadData.uploadedAt,
@@ -324,6 +387,30 @@ describe('Fastify UI backend API', () => {
       const versionsData = await versionsResponse.json();
       expect(versionsData.publicPath).toBe(nestedPath);
       expect(versionsData.items[0].uploadId).toBe(uploadData.uploadId);
+
+      const searchResponse = await fetch(
+        `http://localhost:${serverPort}/api/ui/browse/search?q=manuals`
+      );
+      expect(searchResponse.status).toBe(200);
+      expect(await searchResponse.json()).toEqual({
+        query: 'manuals',
+        items: [
+          {
+            publicPath: nestedPath,
+            displayPath:
+              '/runs/24224477918/attempt-2/polyfit-manuals/RJK.PolyFit.Manuals.zip',
+            directoryPath: '/runs/24224477918/attempt-2/polyfit-manuals',
+            browseDirectoryPath: '/runs',
+            browseRelativePath:
+              '24224477918/attempt-2/polyfit-manuals/RJK.PolyFit.Manuals.zip',
+            fileName: 'RJK.PolyFit.Manuals.zip',
+            latestUploadId: uploadData.uploadId,
+            latestUploadedAt: uploadData.uploadedAt,
+            latestDownloadPath:
+              '/api/files/runs/24224477918/attempt-2/polyfit-manuals/RJK.PolyFit.Manuals.zip',
+          },
+        ],
+      });
     } finally {
       await server.close();
     }

@@ -25,9 +25,11 @@ const devConfig: ServerConfig = {
   storage: {
     '/': {
       description: 'Test root storage',
+      accept: ['store', 'delete'],
     },
     '/tmp': {
       description: 'Temporary storage (60sec)',
+      accept: ['store', 'delete'],
       expireSeconds: 60,
     },
   },

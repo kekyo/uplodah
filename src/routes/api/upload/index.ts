@@ -11,6 +11,7 @@ import {
   AuthenticatedFastifyRequest,
   createConditionalHybridAuthMiddleware,
   FastifyAuthConfig,
+  requireRole,
 } from '../../../middleware/fastifyAuth';
 import { createUrlResolver } from '../../../utils/urlResolver';
 
@@ -30,11 +31,31 @@ const decodeWildcardPath = (rawPath: string): string => {
   return segments.map((segment) => decodeURIComponent(segment)).join('/');
 };
 
+const parseUploadTagsHeader = (
+  rawHeader: string | string[] | undefined
+): string[] | undefined => {
+  const rawValue = Array.isArray(rawHeader) ? rawHeader.join(',') : rawHeader;
+  if (typeof rawValue !== 'string') {
+    return undefined;
+  }
+
+  const tags = Array.from(
+    new Set(
+      rawValue
+        .split(',')
+        .map((tag) => tag.trim())
+        .filter((tag) => tag.length > 0)
+    )
+  );
+
+  return tags.length > 0 ? tags : undefined;
+};
+
 const requirePublishRole = (
   request: AuthenticatedFastifyRequest,
   reply: FastifyReply
 ) => {
-  if (!request.user || !['publish', 'admin'].includes(request.user.role)) {
+  if (!requireRole(request, ['publish'])) {
     return reply.status(403).send({ error: 'Upload permission required' });
   }
 
@@ -88,9 +109,14 @@ export const registerUploadRoutes = async (
 
       try {
         const decodedPath = decodeWildcardPath(rawPath);
+        const authRequest = request as AuthenticatedFastifyRequest;
         const storedFile = await storageService.storeFile(
           decodedPath,
-          fileBuffer
+          fileBuffer,
+          {
+            uploadedBy: authRequest.user?.username ?? 'anonymous',
+            tags: parseUploadTagsHeader(request.headers['x-uplodah-tags']),
+          }
         );
         const baseUrl = urlResolver.resolveUrl(request).baseUrl;
         const latestDownloadUrl = `${baseUrl}${storedFile.latestDownloadPath}`;
@@ -115,7 +141,7 @@ export const registerUploadRoutes = async (
           return reply.status(400).send({ error: 'Upload path is invalid' });
         }
 
-        if (error.message === 'Upload directory is read-only') {
+        if (error.message === 'Upload directory does not allow uploads') {
           return reply.status(403).send({ error: error.message });
         }
 

@@ -48,4 +48,15 @@ describe('test-helper', () => {
     expect(port).not.toBe(occupiedPort);
     expect(port).toBe(occupiedPort + 1);
   });
+
+  it('should skip fetch-blocked candidate ports', async () => {
+    const basePort = 6000 - (process.pid % 1000);
+
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+
+    const port = await getTestPort(basePort);
+
+    expect(port).not.toBe(6000);
+    expect(port).toBe(6001);
+  });
 });

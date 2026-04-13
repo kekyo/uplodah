@@ -6,7 +6,13 @@
 import { readFile } from 'fs/promises';
 import { join, resolve } from 'path';
 import JSON5 from 'json5';
-import { LogLevel, AuthMode, Logger, StorageConfig } from '../types';
+import {
+  LogLevel,
+  AuthMode,
+  Logger,
+  StorageConfig,
+  StoragePermission,
+} from '../types';
 
 /**
  * Configuration file structure for uplodah
@@ -36,6 +42,10 @@ const validateConfig = (
   logger?: Logger
 ): ConfigFile => {
   const validated: ConfigFile = {};
+  const validStoragePermissions: readonly StoragePermission[] = [
+    'store',
+    'delete',
+  ];
 
   const validateStorage = (storage: any): StorageConfig | undefined => {
     if (!storage || typeof storage !== 'object' || Array.isArray(storage)) {
@@ -96,12 +106,24 @@ const validateConfig = (
         }
       }
 
-      if ('readonly' in rawRule) {
-        if (typeof rawRule.readonly === 'boolean') {
-          validatedRule.readonly = rawRule.readonly;
+      if ('accept' in rawRule) {
+        if (Array.isArray(rawRule.accept)) {
+          const acceptedPermissions = Array.from(
+            new Set(
+              rawRule.accept.filter((value): value is StoragePermission =>
+                validStoragePermissions.includes(value as StoragePermission)
+              )
+            )
+          );
+          if (acceptedPermissions.length !== rawRule.accept.length) {
+            logger?.warn(
+              `Invalid accept for "${directoryPath}" in config.json: expected "store" and/or "delete"`
+            );
+          }
+          validatedRule.accept = acceptedPermissions;
         } else {
           logger?.warn(
-            `Invalid readonly for "${directoryPath}" in config.json: expected boolean`
+            `Invalid accept for "${directoryPath}" in config.json: expected an array`
           );
         }
       }
