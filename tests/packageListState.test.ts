@@ -7,7 +7,7 @@ import { describe, expect, test } from 'vitest';
 import {
   buildDirectorySections,
   buildBrowseDirectorySections,
-  canDeleteFileGroupVersions,
+  canDeleteFileGroupVersion,
   clearDirectoryPanelState,
   clearFileGroupPanelState,
   updateDirectorySummaryFileGroupCount,
@@ -35,19 +35,19 @@ describe('package list panel state helpers', () => {
           {
             directoryPath: '/',
             description: 'Shared packages',
-            readonly: true,
+            accept: ['store', 'delete'],
             fileGroupCount: 1,
           },
           {
             directoryPath: '/runs',
             description: 'Nightly builds',
-            readonly: true,
+            accept: ['store', 'delete'],
             fileGroupCount: 2,
           },
           {
             directoryPath: '/empty',
             description: 'Unused',
-            readonly: true,
+            accept: ['store', 'delete'],
             fileGroupCount: 0,
           },
         ],
@@ -98,7 +98,7 @@ describe('package list panel state helpers', () => {
           {
             directoryPath: '/runs',
             description: 'Nightly builds',
-            readonly: true,
+            accept: ['store', 'delete'],
             fileGroupCount: 2,
           },
         ],
@@ -123,13 +123,13 @@ describe('package list panel state helpers', () => {
           {
             directoryPath: '/runs',
             description: 'Nightly builds',
-            readonly: true,
+            accept: ['store', 'delete'],
             fileGroupCount: 2,
           },
           {
             directoryPath: '/empty',
             description: 'Unused',
-            readonly: true,
+            accept: ['store', 'delete'],
             fileGroupCount: 0,
           },
         ],
@@ -140,13 +140,13 @@ describe('package list panel state helpers', () => {
       {
         directoryPath: '/runs',
         description: 'Nightly builds',
-        readonly: true,
+        accept: ['store', 'delete'],
         fileGroupCount: 1,
       },
       {
         directoryPath: '/empty',
         description: 'Unused',
-        readonly: true,
+        accept: ['store', 'delete'],
         fileGroupCount: 0,
       },
     ]);
@@ -192,63 +192,19 @@ describe('package list panel state helpers', () => {
     ]);
   });
 
-  test('shows delete actions only for writable directories and publish-capable users', () => {
-    const file = {
-      browseDirectoryPath: '/incoming',
-    };
-    const readonlyByDirectoryPath = new Map<string, boolean>([
-      ['/incoming', false],
-      ['/readonly', true],
-    ]);
-
+  test('shows delete actions only for versions marked deletable by the API', () => {
     expect(
-      canDeleteFileGroupVersions({
-        serverConfig: {
-          authMode: 'none',
-          currentUser: null,
+      canDeleteFileGroupVersion({
+        version: {
+          canDelete: true,
         },
-        file,
-        readonlyByDirectoryPath,
       })
     ).toBe(true);
     expect(
-      canDeleteFileGroupVersions({
-        serverConfig: {
-          authMode: 'publish',
-          currentUser: {
-            username: 'publisher',
-            role: 'publish',
-            authenticated: true,
-          },
+      canDeleteFileGroupVersion({
+        version: {
+          canDelete: false,
         },
-        file,
-        readonlyByDirectoryPath,
-      })
-    ).toBe(true);
-    expect(
-      canDeleteFileGroupVersions({
-        serverConfig: {
-          authMode: 'publish',
-          currentUser: {
-            username: 'reader',
-            role: 'read',
-            authenticated: true,
-          },
-        },
-        file,
-        readonlyByDirectoryPath,
-      })
-    ).toBe(false);
-    expect(
-      canDeleteFileGroupVersions({
-        serverConfig: {
-          authMode: 'publish',
-          currentUser: null,
-        },
-        file: {
-          browseDirectoryPath: '/readonly',
-        },
-        readonlyByDirectoryPath,
       })
     ).toBe(false);
   });
@@ -262,6 +218,7 @@ describe('package list panel state helpers', () => {
             uploadId: '20260407_145659_216',
             uploadedAt: '2026-04-07T14:56:59.000Z',
             size: 42086,
+            canDelete: false,
             versionDownloadPath:
               '/api/files/dockit-0.5.0.zip/20260407_145659_216',
           },

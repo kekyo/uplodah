@@ -129,15 +129,16 @@ describe('storageService', () => {
     ]);
   });
 
-  it('should filter readonly directories from available uploads and enforce rules', async () => {
+  it('should filter uploadable directories by accept and enforce store rules', async () => {
     const service = createService({
       storage: {
         '/incoming': {
           description: 'Incoming artifacts',
+          accept: ['store', 'delete'],
         },
-        '/readonly': {
-          description: 'Read-only archive',
-          readonly: true,
+        '/delete-only': {
+          description: 'Delete-only archive',
+          accept: ['delete'],
         },
       },
     });
@@ -154,13 +155,13 @@ describe('storageService', () => {
       {
         directoryPath: '/incoming',
         description: 'Incoming artifacts',
-        readonly: false,
+        accept: ['store', 'delete'],
         fileGroupCount: 0,
       },
       {
-        directoryPath: '/readonly',
-        description: 'Read-only archive',
-        readonly: true,
+        directoryPath: '/delete-only',
+        description: 'Delete-only archive',
+        accept: ['delete'],
         fileGroupCount: 0,
       },
     ]);
@@ -169,8 +170,8 @@ describe('storageService', () => {
       service.storeFile('plain.txt', Buffer.from('blocked'))
     ).rejects.toThrow('Upload directory is not defined in storage rules');
     await expect(
-      service.storeFile('readonly/file.txt', Buffer.from('blocked'))
-    ).rejects.toThrow('Upload directory is read-only');
+      service.storeFile('delete-only/file.txt', Buffer.from('blocked'))
+    ).rejects.toThrow('Upload directory does not allow uploads');
 
     const stored = await service.storeFile(
       'incoming/file.txt',
@@ -193,13 +194,13 @@ describe('storageService', () => {
       {
         directoryPath: '/incoming',
         description: 'Incoming artifacts',
-        readonly: false,
+        accept: ['store', 'delete'],
         fileGroupCount: 1,
       },
       {
-        directoryPath: '/readonly',
-        description: 'Read-only archive',
-        readonly: true,
+        directoryPath: '/delete-only',
+        description: 'Delete-only archive',
+        accept: ['delete'],
         fileGroupCount: 0,
       },
     ]);
@@ -230,10 +231,10 @@ describe('storageService', () => {
     const service = createService({
       storage: {
         '/runs': {},
-        '/readonly': {
-          readonly: true,
+        '/archive': {
+          accept: ['delete'],
         },
-        '/readonly/incoming': {},
+        '/archive/incoming': {},
       },
     });
     await service.initialize();
@@ -272,17 +273,17 @@ describe('storageService', () => {
     expect(await service.listBrowseDirectories()).toEqual([
       {
         directoryPath: '/runs',
-        readonly: false,
+        accept: ['store', 'delete'],
         fileGroupCount: 1,
       },
       {
-        directoryPath: '/readonly',
-        readonly: true,
+        directoryPath: '/archive',
+        accept: ['delete'],
         fileGroupCount: 0,
       },
       {
-        directoryPath: '/readonly/incoming',
-        readonly: false,
+        directoryPath: '/archive/incoming',
+        accept: ['store', 'delete'],
         fileGroupCount: 0,
       },
     ]);
@@ -301,20 +302,20 @@ describe('storageService', () => {
     ]);
 
     await expect(
-      service.storeFile('readonly/deep/file.txt', Buffer.from('blocked'))
-    ).rejects.toThrow('Upload directory is read-only');
+      service.storeFile('archive/deep/file.txt', Buffer.from('blocked'))
+    ).rejects.toThrow('Upload directory does not allow uploads');
 
-    const reopenedPath = 'readonly/incoming/2026/file.txt';
+    const reopenedPath = 'archive/incoming/2026/file.txt';
     const reopened = await service.storeFile(
       reopenedPath,
       Buffer.from('reopened')
     );
-    expect(reopened.directoryPath).toBe('/readonly/incoming/2026');
+    expect(reopened.directoryPath).toBe('/archive/incoming/2026');
     expect(
       await fs.readFile(
         path.join(
           testDir,
-          'readonly',
+          'archive',
           'incoming',
           '2026',
           'file.txt',
@@ -327,35 +328,33 @@ describe('storageService', () => {
     expect(await service.listBrowseDirectories()).toEqual([
       {
         directoryPath: '/runs',
-        readonly: false,
+        accept: ['store', 'delete'],
         fileGroupCount: 1,
       },
       {
-        directoryPath: '/readonly',
-        readonly: true,
+        directoryPath: '/archive',
+        accept: ['delete'],
         fileGroupCount: 0,
       },
       {
-        directoryPath: '/readonly/incoming',
-        readonly: false,
+        directoryPath: '/archive/incoming',
+        accept: ['store', 'delete'],
         fileGroupCount: 1,
       },
     ]);
-    expect(await service.listDirectoryFileGroups('/readonly/incoming')).toEqual(
-      [
-        {
-          publicPath: reopenedPath,
-          displayPath: '/readonly/incoming/2026/file.txt',
-          directoryPath: '/readonly/incoming/2026',
-          browseDirectoryPath: '/readonly/incoming',
-          browseRelativePath: '2026/file.txt',
-          fileName: 'file.txt',
-          latestUploadId: reopened.uploadId,
-          latestUploadedAt: reopened.uploadedAt,
-          latestDownloadPath: '/api/files/readonly/incoming/2026/file.txt',
-        },
-      ]
-    );
+    expect(await service.listDirectoryFileGroups('/archive/incoming')).toEqual([
+      {
+        publicPath: reopenedPath,
+        displayPath: '/archive/incoming/2026/file.txt',
+        directoryPath: '/archive/incoming/2026',
+        browseDirectoryPath: '/archive/incoming',
+        browseRelativePath: '2026/file.txt',
+        fileName: 'file.txt',
+        latestUploadId: reopened.uploadId,
+        latestUploadedAt: reopened.uploadedAt,
+        latestDownloadPath: '/api/files/archive/incoming/2026/file.txt',
+      },
+    ]);
   });
 
   it('should create unique uploadIds when the timestamp collides', async () => {
@@ -469,8 +468,8 @@ describe('storageService', () => {
     const service = createService({
       storage: {
         '/incoming': {},
-        '/readonly': {
-          readonly: true,
+        '/delete-only': {
+          accept: ['delete'],
         },
       },
     });
@@ -493,9 +492,31 @@ describe('storageService', () => {
     ).rejects.toMatchObject({
       code: 'ENOENT',
     });
+
+    const deleteOnlyVersionDirectoryPath = path.join(
+      testDir,
+      'delete-only',
+      'report.txt',
+      stored.uploadId
+    );
+    await fs.mkdir(deleteOnlyVersionDirectoryPath, { recursive: true });
+    await fs.writeFile(
+      path.join(deleteOnlyVersionDirectoryPath, 'metadata.json'),
+      '{}'
+    );
+    await fs.writeFile(
+      path.join(deleteOnlyVersionDirectoryPath, 'report.txt'),
+      'delete-only'
+    );
+
+    expect(
+      await service.deleteFileVersion('delete-only/report.txt', stored.uploadId)
+    ).toBe(true);
     await expect(
-      service.deleteFileVersion('readonly/report.txt', stored.uploadId)
-    ).rejects.toThrow('Upload directory is read-only');
+      fs.stat(path.join(testDir, 'delete-only', 'report.txt'))
+    ).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
   });
 
   it('should remove expired versions when they are scanned', async () => {
@@ -706,12 +727,12 @@ describe('storageService', () => {
     expect(await service.listBrowseDirectories()).toEqual([
       {
         directoryPath: '/runs',
-        readonly: false,
+        accept: ['store', 'delete'],
         fileGroupCount: 0,
       },
       {
         directoryPath: '/runs2',
-        readonly: false,
+        accept: ['store', 'delete'],
         fileGroupCount: 1,
       },
     ]);

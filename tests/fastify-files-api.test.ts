@@ -284,6 +284,84 @@ describe('Fastify files and upload API', () => {
     }
   }, 30000);
 
+  test('should allow deletion only for the uploader or an admin in publish mode', async () => {
+    const server = await startServer('publish');
+
+    try {
+      const publishCookie = await login('publishuser', 'publishpass');
+      const uploadResponse = await uploadFile('owned-by-other.txt', 'payload', {
+        Cookie: publishCookie,
+      });
+      expect(uploadResponse.status).toBe(201);
+      const uploadData = await uploadResponse.json();
+
+      const versionDirectoryPath = path.join(
+        testStorageDir,
+        'owned-by-other.txt',
+        uploadData.uploadId
+      );
+      await fs.writeFile(
+        path.join(versionDirectoryPath, 'metadata.json'),
+        JSON.stringify({ uploadedBy: 'other-user' })
+      );
+
+      const uploaderMismatchDelete = await deleteFileVersion(
+        `owned-by-other.txt/${uploadData.uploadId}`,
+        {
+          Cookie: publishCookie,
+        }
+      );
+      expect(uploaderMismatchDelete.status).toBe(403);
+      expect(await uploaderMismatchDelete.json()).toEqual({
+        error: 'Delete permission required',
+      });
+
+      const adminCookie = await login('adminuser', 'adminpass');
+      const adminDelete = await deleteFileVersion(
+        `owned-by-other.txt/${uploadData.uploadId}`,
+        {
+          Cookie: adminCookie,
+        }
+      );
+      expect(adminDelete.status).toBe(200);
+    } finally {
+      await server.close();
+    }
+  }, 30000);
+
+  test('should allow a read-only user to delete their own uploaded revision', async () => {
+    const server = await startServer('publish');
+
+    try {
+      const uploadId = '20260408_101112_345';
+      const versionDirectoryPath = path.join(
+        testStorageDir,
+        'owned-by-reader.txt',
+        uploadId
+      );
+      await fs.mkdir(versionDirectoryPath, { recursive: true });
+      await fs.writeFile(
+        path.join(versionDirectoryPath, 'metadata.json'),
+        JSON.stringify({ uploadedBy: 'readuser' })
+      );
+      await fs.writeFile(
+        path.join(versionDirectoryPath, 'owned-by-reader.txt'),
+        'reader-owned'
+      );
+
+      const readCookie = await login('readuser', 'readpass');
+      const deleteResponse = await deleteFileVersion(
+        `owned-by-reader.txt/${uploadId}`,
+        {
+          Cookie: readCookie,
+        }
+      );
+      expect(deleteResponse.status).toBe(200);
+    } finally {
+      await server.close();
+    }
+  }, 30000);
+
   test('should require authentication for listing and upload in full mode', async () => {
     const server = await startServer('full');
 
@@ -330,39 +408,29 @@ describe('Fastify files and upload API', () => {
     }
   }, 30000);
 
-  test('should reject delete requests for readonly directories', async () => {
+  test('should reject delete requests for directories without delete accept', async () => {
     const server = await startServer('none', {
       storage: {
-        '/readonly': {
-          readonly: true,
+        '/store-only': {
+          accept: ['store'],
         },
       },
     });
 
     try {
-      const uploadId = '20260408_101112_345';
-      const versionDirectoryPath = path.join(
-        testStorageDir,
-        'readonly',
-        'report.txt',
-        uploadId
-      );
-      await fs.mkdir(versionDirectoryPath, { recursive: true });
-      await fs.writeFile(
-        path.join(versionDirectoryPath, 'metadata.json'),
-        '{}'
-      );
-      await fs.writeFile(
-        path.join(versionDirectoryPath, 'report.txt'),
+      const uploadResponse = await uploadFile(
+        'store-only/report.txt',
         'locked'
       );
+      expect(uploadResponse.status).toBe(201);
+      const uploadData = await uploadResponse.json();
 
       const deleteResponse = await deleteFileVersion(
-        `readonly/report.txt/${uploadId}`
+        `store-only/report.txt/${uploadData.uploadId}`
       );
       expect(deleteResponse.status).toBe(403);
       expect(await deleteResponse.json()).toEqual({
-        error: 'Upload directory is read-only',
+        error: 'Upload directory does not allow deletions',
       });
     } finally {
       await server.close();
@@ -374,9 +442,10 @@ describe('Fastify files and upload API', () => {
       storage: {
         '/incoming': {
           description: 'Incoming artifacts',
+          accept: ['store'],
         },
-        '/readonly': {
-          readonly: true,
+        '/delete-only': {
+          accept: ['delete'],
         },
       },
     });
@@ -398,8 +467,11 @@ describe('Fastify files and upload API', () => {
       const rootUpload = await uploadFile('root.txt', 'blocked');
       expect(rootUpload.status).toBe(400);
 
-      const readonlyUpload = await uploadFile('readonly/file.txt', 'blocked');
-      expect(readonlyUpload.status).toBe(403);
+      const deleteOnlyUpload = await uploadFile(
+        'delete-only/file.txt',
+        'blocked'
+      );
+      expect(deleteOnlyUpload.status).toBe(403);
 
       const allowedUpload = await uploadFile('incoming/file.txt', 'allowed');
       expect(allowedUpload.status).toBe(201);

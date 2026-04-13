@@ -13,6 +13,7 @@ import {
   Logger,
   ServerConfig,
   StorageDirectoryDescriptor,
+  StoragePermission,
   StorageRule,
 } from '../types';
 
@@ -140,7 +141,7 @@ export interface StoredFileListResult {
 export interface StoredDirectoryInfo {
   directoryPath: string;
   description?: string;
-  readonly: boolean;
+  accept: StoragePermission[];
   fileGroupCount: number;
 }
 
@@ -160,6 +161,16 @@ export interface StorageService {
    * Get uploadable public directories with UI metadata.
    */
   readonly getAvailableUploadDirectoryDetails: () => StorageDirectoryDescriptor[];
+  /**
+   * Check whether a public file path is accepted for a storage action by
+   * storage-directory rules.
+   * @param rawPublicPath Public file path.
+   * @param permission Directory permission to check.
+   */
+  readonly isPublicPathAcceptedForPermission: (
+    rawPublicPath: string,
+    permission: StoragePermission
+  ) => boolean;
   /**
    * List configured virtual directories in display order with file-group counts.
    */
@@ -424,6 +435,24 @@ export const createStorageService = (
     }
     return Object.keys(storageRules);
   };
+  const defaultStoragePermissions: readonly StoragePermission[] = [
+    'store',
+    'delete',
+  ];
+  const getAcceptedPermissions = (
+    rule: StorageRule | undefined
+  ): StoragePermission[] =>
+    rule?.accept !== undefined
+      ? Array.from(new Set(rule.accept))
+      : [...defaultStoragePermissions];
+  const isPermissionAccepted = (
+    rule: StorageRule | undefined,
+    permission: StoragePermission
+  ): boolean => getAcceptedPermissions(rule).includes(permission);
+  const getPermissionDeniedMessage = (permission: StoragePermission): string =>
+    permission === 'store'
+      ? 'Upload directory does not allow uploads'
+      : 'Upload directory does not allow deletions';
 
   const createDirectoryDescriptionFields = (description?: string) =>
     description !== undefined ? { description } : {};
@@ -546,8 +575,9 @@ export const createStorageService = (
       : undefined;
   };
 
-  const resolveUploadPublicPath = (
-    rawPublicPath: string
+  const resolvePublicPathForPermission = (
+    rawPublicPath: string,
+    permission: StoragePermission
   ): NormalizedPublicPath => {
     const normalizedPath = normalizeStoredPublicPath(rawPublicPath);
     const resolution = resolveConfiguredVirtualDirectory(
@@ -563,11 +593,25 @@ export const createStorageService = (
       throw new Error('Upload directory is not defined in storage rules');
     }
 
-    if (resolution.rule?.readonly === true) {
-      throw new Error('Upload directory is read-only');
+    if (!isPermissionAccepted(resolution.rule, permission)) {
+      throw new Error(getPermissionDeniedMessage(permission));
     }
 
     return createResolvedPublicPath(normalizedPath, resolution);
+  };
+
+  const isPublicPathAcceptedForPermission = (
+    rawPublicPath: string,
+    permission: StoragePermission
+  ): boolean => {
+    try {
+      const normalizedPath = resolveReadablePublicPath(rawPublicPath);
+      return normalizedPath
+        ? isPermissionAccepted(normalizedPath.storageRule, permission)
+        : false;
+    } catch {
+      return false;
+    }
   };
 
   const getAvailableUploadDirectoryDetails =
@@ -581,7 +625,7 @@ export const createStorageService = (
       }
 
       return Object.entries(storageRules)
-        .filter(([, rule]) => rule.readonly !== true)
+        .filter(([, rule]) => isPermissionAccepted(rule, 'store'))
         .map(([directoryPath, rule]) => ({
           directoryPath,
           ...createDirectoryDescriptionFields(rule.description),
@@ -1129,6 +1173,8 @@ export const createStorageService = (
 
     getAvailableUploadDirectoryDetails,
 
+    isPublicPathAcceptedForPermission,
+
     listBrowseDirectories: async () => {
       const groups = await scanAllGroupSummaries();
       const fileGroupCounts = new Map<string, number>();
@@ -1145,7 +1191,7 @@ export const createStorageService = (
         ...createDirectoryDescriptionFields(
           storageRules?.[directoryPath]?.description
         ),
-        readonly: storageRules?.[directoryPath]?.readonly === true,
+        accept: getAcceptedPermissions(storageRules?.[directoryPath]),
         fileGroupCount: fileGroupCounts.get(directoryPath) ?? 0,
       }));
     },
@@ -1229,7 +1275,10 @@ export const createStorageService = (
       fileContent: Buffer,
       metadata?: StoredUploadMetadata
     ) => {
-      const normalizedPath = resolveUploadPublicPath(rawPublicPath);
+      const normalizedPath = resolvePublicPathForPermission(
+        rawPublicPath,
+        'store'
+      );
 
       const groupDirectoryPath = getGroupDirectoryPath(normalizedPath);
       const uploadId = await createUploadId(normalizedPath);
@@ -1273,7 +1322,10 @@ export const createStorageService = (
         return false;
       }
 
-      const normalizedPath = resolveUploadPublicPath(rawPublicPath);
+      const normalizedPath = resolvePublicPathForPermission(
+        rawPublicPath,
+        'delete'
+      );
       const storedVersion = await resolveStoredVersion(
         normalizedPath.publicPath,
         uploadId

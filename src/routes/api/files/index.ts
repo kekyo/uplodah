@@ -11,7 +11,6 @@ import {
   AuthenticatedFastifyRequest,
   createConditionalHybridAuthMiddleware,
   FastifyAuthConfig,
-  requireRole,
 } from '../../../middleware/fastifyAuth';
 import {
   StorageService,
@@ -20,6 +19,7 @@ import {
 } from '../../../services/storageService';
 import { createUrlResolver } from '../../../utils/urlResolver';
 import { streamFile } from '../../../utils/fileStreaming';
+import { canDeleteStoredVersion } from '../../../utils/storageAccess';
 
 /**
  * Files routes configuration.
@@ -52,17 +52,6 @@ const withAbsoluteUrls = (
   })),
 });
 
-const requirePublishRole = (
-  request: AuthenticatedFastifyRequest,
-  reply: FastifyReply
-) => {
-  if (!requireRole(request, ['publish'])) {
-    return reply.status(403).send({ error: 'Delete permission required' });
-  }
-
-  return undefined;
-};
-
 /**
  * Register file list and download API routes.
  * @param fastify Fastify instance.
@@ -81,22 +70,11 @@ export const registerFilesRoutes = async (
     ? createConditionalHybridAuthMiddleware(authConfig)
     : null;
   const authPreHandler = authHandler ? ([authHandler] as any) : [];
-  const publishAuthHandler = authService.isAuthRequired('publish')
+  const deleteAuthHandler = authService.isAuthRequired('publish')
     ? createConditionalHybridAuthMiddleware(authConfig)
     : null;
-  const publishAuthPreHandler = publishAuthHandler
-    ? ([
-        publishAuthHandler,
-        async (request: FastifyRequest, reply: FastifyReply) => {
-          const roleCheck = requirePublishRole(
-            request as AuthenticatedFastifyRequest,
-            reply
-          );
-          if (roleCheck) {
-            return roleCheck;
-          }
-        },
-      ] as any)
+  const deleteAuthPreHandler = deleteAuthHandler
+    ? ([deleteAuthHandler] as any)
     : [];
 
   fastify.get(
@@ -194,7 +172,7 @@ export const registerFilesRoutes = async (
   fastify.delete(
     '/*',
     {
-      preHandler: publishAuthPreHandler,
+      preHandler: deleteAuthPreHandler,
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const rawPath = (request.params as { '*': string })['*'];
@@ -204,6 +182,15 @@ export const registerFilesRoutes = async (
 
       try {
         const decodedPath = decodeWildcardPath(rawPath);
+        const authMode = authService.getAuthMode();
+        const authRequest = request as AuthenticatedFastifyRequest;
+        const currentUser = authRequest.user
+          ? {
+              username: authRequest.user.username,
+              role: authRequest.user.role,
+              authenticated: true,
+            }
+          : null;
         let latestVersion;
         try {
           latestVersion =
@@ -236,6 +223,26 @@ export const registerFilesRoutes = async (
           });
         }
 
+        const targetVersion = await storageService.getFileVersion(
+          filePath,
+          uploadId
+        );
+        if (!targetVersion) {
+          return reply.status(404).send({ error: 'File not found' });
+        }
+
+        if (
+          !canDeleteStoredVersion({
+            authMode,
+            currentUser,
+            uploadedBy: targetVersion.uploadedBy,
+          })
+        ) {
+          return reply
+            .status(403)
+            .send({ error: 'Delete permission required' });
+        }
+
         const handle = await locker.writeLock();
         let deleted = false;
         try {
@@ -253,7 +260,7 @@ export const registerFilesRoutes = async (
           return reply.status(400).send({ error: 'File path is invalid' });
         }
 
-        if (error?.message === 'Upload directory is read-only') {
+        if (error?.message === 'Upload directory does not allow deletions') {
           return reply.status(403).send({ error: error.message });
         }
 

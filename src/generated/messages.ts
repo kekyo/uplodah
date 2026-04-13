@@ -656,12 +656,12 @@ export const messages = {
     fallback: "Files" 
   } as SimpleMessageItem,
   /**
-   * FILE_GROUPS_HEADER ==> "Directories"
+   * FILE_GROUPS_HEADER ==> "Directories ({count:number})"
    */
   FILE_GROUPS_HEADER: { 
     key: "FILE_GROUPS_HEADER", 
-    fallback: "Directories" 
-  } as SimpleMessageItem,
+    fallback: "Directories ({count:number})" 
+  } as MessageItem<{ count: number }>,
   /**
    * FILE_GROUPS_COUNT ==> "{count:number} file groups"
    */

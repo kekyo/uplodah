@@ -52,6 +52,7 @@ interface FileVersion {
   uploadedAt: string;
   size: number;
   versionDownloadPath: string;
+  canDelete: boolean;
   uploadedBy?: string;
   tags?: string[];
 }
@@ -71,7 +72,7 @@ interface FileGroupSummary {
 interface DirectorySummary {
   directoryPath: string;
   description?: string;
-  readonly: boolean;
+  accept: Array<'store' | 'delete'>;
   fileGroupCount: number;
 }
 
@@ -133,7 +134,10 @@ interface PackageListEntriesProps {
   >;
   versionErrorsByPublicPath: Readonly<Record<string, string | undefined>>;
   versionLoadingPanels: ReadonlySet<string>;
-  canDeleteFileGroupVersions: (file: FileGroupSummary) => boolean;
+  canDeleteFileGroupVersion: (
+    file: FileGroupSummary,
+    version: FileVersion
+  ) => boolean;
   onDeleteVersionRequest: (
     file: FileGroupSummary,
     version: FileVersion
@@ -312,38 +316,15 @@ export const buildBrowseDirectorySections = (
 
 /**
  * Decide whether the current package-list context may show delete actions for a
- * file group.
- * @param params Server auth state, target file group, and readonly flags keyed
- * by browse directory path.
- * @returns True when file-version deletion is allowed for the file group.
+ * specific file version.
+ * @param params Target file version returned by the browse API.
+ * @returns True when file-version deletion is allowed for the version.
  */
-export const canDeleteFileGroupVersions = ({
-  serverConfig,
-  file,
-  readonlyByDirectoryPath,
+export const canDeleteFileGroupVersion = ({
+  version,
 }: {
-  serverConfig: ServerConfig | null | undefined;
-  file: Pick<FileGroupSummary, 'browseDirectoryPath'>;
-  readonlyByDirectoryPath: ReadonlyMap<string, boolean>;
-}): boolean => {
-  if (readonlyByDirectoryPath.get(file.browseDirectoryPath) !== false) {
-    return false;
-  }
-
-  if (!serverConfig) {
-    return false;
-  }
-
-  if (serverConfig.authMode === 'none') {
-    return true;
-  }
-
-  if (!serverConfig.currentUser?.authenticated) {
-    return false;
-  }
-
-  return ['publish', 'admin'].includes(serverConfig.currentUser.role);
-};
+  version: Pick<FileVersion, 'canDelete'>;
+}): boolean => version.canDelete === true;
 
 /**
  * Update the stored file-group count for a browse directory summary.
@@ -507,7 +488,7 @@ export const PackageListEntries = ({
   versionsByPublicPath,
   versionErrorsByPublicPath,
   versionLoadingPanels,
-  canDeleteFileGroupVersions,
+  canDeleteFileGroupVersion,
   onDeleteVersionRequest,
   onDirectoryAccordionChange,
   onAccordionChange,
@@ -952,7 +933,10 @@ export const PackageListEntries = ({
                                           message={messages.DOWNLOAD}
                                         />
                                       </Button>
-                                      {canDeleteFileGroupVersions(file) ? (
+                                      {canDeleteFileGroupVersion(
+                                        file,
+                                        version
+                                      ) ? (
                                         <Button
                                           variant="outlined"
                                           size="small"
@@ -1043,12 +1027,13 @@ export const PackageListHeaderTitle = ({
       display: 'flex',
       alignItems: 'center',
       gap: 1,
-      fontWeight: 700,
     }}
   >
     <HomeIcon fontSize="large" />
-    <TypedMessage message={messages.FILE_GROUPS_HEADER} /> (
-    {visibleDirectoryCount})
+    <TypedMessage
+      message={messages.FILE_GROUPS_HEADER}
+      params={{ count: visibleDirectoryCount }}
+    />
   </Typography>
 );
 
@@ -1420,16 +1405,6 @@ const PackageList = forwardRef<PackageListRef, PackageListProps>(
         ),
       [directorySummaries]
     );
-    const directoryReadonlyByPath = useMemo(
-      () =>
-        new Map(
-          directorySummaries.map((directory) => [
-            directory.directoryPath,
-            directory.readonly,
-          ])
-        ),
-      [directorySummaries]
-    );
     const browseSections = useMemo(
       () =>
         buildBrowseDirectorySections(
@@ -1463,13 +1438,12 @@ const PackageList = forwardRef<PackageListRef, PackageListProps>(
       isSearchMode
     );
     const visibleDirectoryCount = sections.length;
-    const resolveCanDeleteFileGroupVersions = (
-      file: FileGroupSummary
+    const resolveCanDeleteFileGroupVersion = (
+      _file: FileGroupSummary,
+      version: FileVersion
     ): boolean =>
-      canDeleteFileGroupVersions({
-        serverConfig,
-        file,
-        readonlyByDirectoryPath: directoryReadonlyByPath,
+      canDeleteFileGroupVersion({
+        version,
       });
 
     const loadDirectoryFileGroups = (directoryPath: string) => {
@@ -1795,7 +1769,7 @@ const PackageList = forwardRef<PackageListRef, PackageListProps>(
             versionsByPublicPath={versionsByPublicPath}
             versionErrorsByPublicPath={versionErrorsByPublicPath}
             versionLoadingPanels={versionLoadingPanels}
-            canDeleteFileGroupVersions={resolveCanDeleteFileGroupVersions}
+            canDeleteFileGroupVersion={resolveCanDeleteFileGroupVersion}
             onDeleteVersionRequest={(file, version) => {
               setDeleteTarget({ file, version });
               setDeleteError(null);

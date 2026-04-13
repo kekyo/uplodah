@@ -97,7 +97,7 @@
   "ERROR_LOADING_FILES": "Error loading files: {error}",
   "NO_FILES_FOUND": "No virtual directories found in storage.",
   "FILES_HEADER": "Files",
-  "FILE_GROUPS_HEADER": "Directories",
+  "FILE_GROUPS_HEADER": "Directories ({count:number})",
   "FILE_GROUPS_COUNT": "{count:number} file groups",
   "FILTER_FILES_PLACEHOLDER": "Filter files...",
   "NO_FILES_MATCH_FILTER": "No files match your filter criteria.",
@@ -114,7 +114,6 @@
   "FILE_SIZE_LABEL": "Size: {size}",
   "VERSION_DETAILS_LABEL": "Upload ID: {uploadId} Size: {size}",
   "UPLOADED_BY_LABEL": "Upload: {uploadedBy}",
-  "TAGS_LABEL": "Tags:",
   "VERSION_COUNT": "Versions: {count:number}",
   "DOWNLOAD_FILE": "Download file",
 

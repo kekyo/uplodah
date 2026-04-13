@@ -32,6 +32,7 @@ const sampleFiles = [
         uploadId: '20260407_145659_216',
         uploadedAt: '2026-04-07T14:56:59.000Z',
         size: 42086,
+        canDelete: true,
         versionDownloadPath: '/api/files/dockit-0.5.0.zip/20260407_145659_216',
         uploadedBy: 'dockit-bot',
         tags: ['nightly', 'zip'],
@@ -40,6 +41,7 @@ const sampleFiles = [
         uploadId: '20260407_145157_213',
         uploadedAt: '2026-04-07T14:51:57.000Z',
         size: 42086,
+        canDelete: false,
         versionDownloadPath: '/api/files/dockit-0.5.0.zip/20260407_145157_213',
       },
     ],
@@ -82,7 +84,7 @@ const renderEntries = ({
   versionsByPublicPath = {
     'dockit-0.5.0.zip': sampleFiles[0].versions,
   },
-  canDeleteFileGroupVersions,
+  canDeleteFileGroupVersion,
 }: {
   expandedDirectoryPanels: ReadonlySet<string>;
   expandedPanels: ReadonlySet<string>;
@@ -95,9 +97,12 @@ const renderEntries = ({
   versionsByPublicPath?: Readonly<
     Record<string, (typeof sampleFiles)[number]['versions'] | undefined>
   >;
-  canDeleteFileGroupVersions?: (file: {
-    browseDirectoryPath: string;
-  }) => boolean;
+  canDeleteFileGroupVersion?: (
+    file: {
+      browseDirectoryPath: string;
+    },
+    version: (typeof sampleFiles)[number]['versions'][number]
+  ) => boolean;
 }) =>
   renderToStaticMarkup(
     createElement(
@@ -117,7 +122,7 @@ const renderEntries = ({
         versionsByPublicPath,
         versionErrorsByPublicPath: {},
         versionLoadingPanels: new Set(),
-        canDeleteFileGroupVersions: canDeleteFileGroupVersions ?? (() => false),
+        canDeleteFileGroupVersion: canDeleteFileGroupVersion ?? (() => false),
         onDeleteVersionRequest: vi.fn(),
         onDirectoryAccordionChange: vi.fn(),
         onAccordionChange: vi.fn(),
@@ -256,6 +261,7 @@ describe('package list entries', () => {
           uploadId: '20260410_080527_291',
           uploadedAt: '2026-04-10T08:05:27.000Z',
           size: 12058624,
+          canDelete: false,
           versionDownloadPath:
             '/api/files/runs/24224477918/attempt-2/polyfit-manuals/RJK.PolyFit.Manuals.zip/20260410_080527_291',
         },
@@ -305,7 +311,7 @@ describe('package list entries', () => {
     const html = renderEntries({
       expandedDirectoryPanels: new Set(['/']),
       expandedPanels: new Set(['dockit-0.5.0.zip']),
-      canDeleteFileGroupVersions: () => true,
+      canDeleteFileGroupVersion: (_file, version) => version.canDelete,
     });
 
     expect(html).toContain('aria-expanded="true"');
@@ -323,14 +329,14 @@ describe('package list entries', () => {
     expect(html.match(/Tags:/g)?.length).toBe(1);
     expect(html).toContain('Download');
     expect(html).toContain('...');
-    expect(html).toContain('aria-label="Actions"');
+    expect(html.match(/aria-label="Actions"/g)?.length).toBe(1);
   });
 
   test('hides revision action buttons when delete permission is unavailable', () => {
     const html = renderEntries({
       expandedDirectoryPanels: new Set(['/']),
       expandedPanels: new Set(['dockit-0.5.0.zip']),
-      canDeleteFileGroupVersions: () => false,
+      canDeleteFileGroupVersion: () => false,
     });
 
     expect(html).toContain('Download');

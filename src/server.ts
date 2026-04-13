@@ -27,6 +27,7 @@ import { createSessionService } from './services/sessionService';
 import { createAuthFailureTrackerFromEnv } from './services/authFailureTracker';
 import { Logger, LogLevel, ServerConfig } from './types';
 import { createUrlResolver } from './utils/urlResolver';
+import { filterUploadDirectoryDetailsByUserAccess } from './utils/storageAccess';
 import {
   createLocalStrategy,
   createBasicStrategy,
@@ -482,24 +483,60 @@ export const createFastifyInstance = async (
     };
   });
 
-  // Serve config endpoint without authentication (public endpoint per CLAUDE.md spec)
-  fastify.get('/api/config', async (request: FastifyRequest, _reply) => {
-    // Get current user from session if available
-    let currentUser = null;
+  const resolveCurrentUserForConfig = async (
+    request: FastifyRequest
+  ): Promise<{
+    username: string;
+    role: string;
+    authenticated: boolean;
+  } | null> => {
+    const sessionToken = request.cookies?.sessionToken;
+    if (sessionToken) {
+      const session = await sessionService.validateSession(sessionToken);
+      if (session) {
+        return {
+          username: session.username,
+          role: session.role,
+          authenticated: true,
+        };
+      }
+    }
 
-    // Check session for current user (but don't require authentication)
-    try {
-      const sessionToken = request.cookies?.sessionToken;
-      if (sessionToken) {
-        const session = await sessionService.validateSession(sessionToken);
-        if (session) {
-          currentUser = {
-            username: session.username,
-            role: session.role,
+    const authHeader = request.headers.authorization;
+    if (
+      authHeader &&
+      typeof authHeader === 'string' &&
+      authHeader.startsWith('Basic ')
+    ) {
+      const credentials = authHeader.substring(6);
+      const decodedCredentials = Buffer.from(credentials, 'base64').toString(
+        'utf-8'
+      );
+      const colonIndex = decodedCredentials.indexOf(':');
+
+      if (colonIndex !== -1) {
+        const username = decodedCredentials.substring(0, colonIndex);
+        const password = decodedCredentials.substring(colonIndex + 1);
+        const user = await userService.validateApiPassword(username, password);
+        if (user) {
+          return {
+            username: user.username,
+            role: user.role,
             authenticated: true,
           };
         }
       }
+    }
+
+    return null;
+  };
+
+  // Serve config endpoint without authentication (public endpoint per CLAUDE.md spec)
+  fastify.get('/api/config', async (request: FastifyRequest, _reply) => {
+    let currentUser = null;
+
+    try {
+      currentUser = await resolveCurrentUserForConfig(request);
     } catch (error) {
       logger.error(`Error checking authentication for /api/config: ${error}`);
     }
@@ -521,13 +558,21 @@ export const createFastifyInstance = async (
       availableLanguages = ['en']; // Fallback to English
     }
 
+    const authMode = authService.getAuthMode();
+    const availableUploadDirectoryDetails =
+      filterUploadDirectoryDetailsByUserAccess({
+        authMode,
+        currentUser,
+        directories: storageService.getAvailableUploadDirectoryDetails(),
+      });
+
     return {
       realm: config.realm || `${packageName} ${version}`,
       name: packageName,
       version: version,
       git_commit_hash: git_commit_hash,
       serverUrl: serverUrl,
-      authMode: authService.getAuthMode(),
+      authMode: authMode,
       authEnabled: {
         general: authService.isAuthRequired('general'),
         publish: authService.isAuthRequired('publish'),
@@ -535,9 +580,10 @@ export const createFastifyInstance = async (
       },
       currentUser: currentUser,
       availableLanguages: availableLanguages,
-      storageDirectories: storageService.getAvailableUploadDirectories(),
-      storageDirectoryDetails:
-        storageService.getAvailableUploadDirectoryDetails(),
+      storageDirectories: availableUploadDirectoryDetails.map(
+        (directory) => directory.directoryPath
+      ),
+      storageDirectoryDetails: availableUploadDirectoryDetails,
     };
   });
 
@@ -554,9 +600,6 @@ export const createFastifyInstance = async (
           logger,
           realm: config.realm || `${packageName} ${version}`,
           serverUrl,
-          storageDirectories: storageService.getAvailableUploadDirectories(),
-          storageDirectoryDetails:
-            storageService.getAvailableUploadDirectoryDetails(),
         });
       },
       { prefix: '/api/ui' }

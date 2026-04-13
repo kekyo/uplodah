@@ -141,7 +141,7 @@ export const registerUploadRoutes = async (
           return reply.status(400).send({ error: 'Upload path is invalid' });
         }
 
-        if (error.message === 'Upload directory is read-only') {
+        if (error.message === 'Upload directory does not allow uploads') {
           return reply.status(403).send({ error: error.message });
         }
 

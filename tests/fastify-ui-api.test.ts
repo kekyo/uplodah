@@ -134,6 +134,28 @@ describe('Fastify UI backend API', () => {
         publish: true,
         admin: true,
       });
+      expect(data.storageDirectories).toEqual(['/']);
+      expect(data.storageDirectoryDetails).toEqual([
+        {
+          directoryPath: '/',
+        },
+      ]);
+    } finally {
+      await server.close();
+    }
+  }, 30000);
+
+  test('should hide upload directories from unauthenticated UI config in full mode', async () => {
+    const server = await startServer('full');
+
+    try {
+      const response = await postJson('/api/ui/config', {});
+      expect(response.status).toBe(200);
+
+      const data = await response.json();
+      expect(data.currentUser).toBeNull();
+      expect(data.storageDirectories).toEqual([]);
+      expect(data.storageDirectoryDetails).toEqual([]);
     } finally {
       await server.close();
     }
@@ -182,13 +204,13 @@ describe('Fastify UI backend API', () => {
         items: [
           {
             directoryPath: '/',
-            readonly: false,
+            accept: ['store', 'delete'],
             fileGroupCount: 0,
           },
           {
             directoryPath: '/tmp',
             description: 'Temporary artifacts',
-            readonly: false,
+            accept: ['store', 'delete'],
             fileGroupCount: 1,
           },
         ],
@@ -228,6 +250,7 @@ describe('Fastify UI backend API', () => {
             uploadedAt: uploadData.uploadedAt,
             size: 8,
             versionDownloadPath: `/api/files/tmp/flashcap.nupkg/${uploadData.uploadId}`,
+            canDelete: true,
             uploadedBy: 'anonymous',
             tags: ['flashcap', 'nightly'],
           },
@@ -327,7 +350,7 @@ describe('Fastify UI backend API', () => {
           {
             directoryPath: '/runs',
             description: 'Workflow artifacts',
-            readonly: false,
+            accept: ['store', 'delete'],
             fileGroupCount: 1,
           },
         ],

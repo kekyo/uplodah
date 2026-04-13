@@ -379,6 +379,12 @@ describe('Fastify Authentication - Phase 2 Tests', () => {
         role: 'publish',
         authenticated: true,
       });
+      expect(data.storageDirectories).toEqual(['/']);
+      expect(data.storageDirectoryDetails).toEqual([
+        {
+          directoryPath: '/',
+        },
+      ]);
     });
   });
 
@@ -396,6 +402,8 @@ describe('Fastify Authentication - Phase 2 Tests', () => {
       const data = await response.json();
       expect(data).toHaveProperty('authMode', 'full');
       expect(data).toHaveProperty('currentUser', null); // Not authenticated
+      expect(data).toHaveProperty('storageDirectories', []);
+      expect(data).toHaveProperty('storageDirectoryDetails', []);
     });
 
     test('should not trigger Basic auth popup for UI requests with X-Requested-With', async () => {
@@ -455,6 +463,12 @@ describe('Fastify Authentication - Phase 2 Tests', () => {
       expect(data.currentUser.username).toBe('testadmin');
       expect(data.currentUser.role).toBe('admin');
       expect(data.currentUser.authenticated).toBe(true);
+      expect(data.storageDirectories).toEqual(['/']);
+      expect(data.storageDirectoryDetails).toEqual([
+        {
+          directoryPath: '/',
+        },
+      ]);
     });
   });
 });

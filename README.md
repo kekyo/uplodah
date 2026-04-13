@@ -58,7 +58,7 @@ It also provides a modern browser-based UI:
   - Multiple file upload
   - Copyable API command examples
 - Virtual storage rules:
-  - Per-directory read-only control
+  - Per-directory store/delete control
   - Per-directory expiration rules
 - Authentication: protect uploads only or the whole server with UI login, user roles, and API passwords
 - Supports reverse proxies and subpath hosting
@@ -316,14 +316,17 @@ Here is an example `storage` section in `config.json`:
     "/bropdox": {
       // "/bropdox"
       "description": "Temporary sharing area",
+      "accept": ["store", "delete"],
       "expireSeconds": 86400 // Expire after 24 hours
     },
     "/archive": {
       // "/archive"
       "description": "Long-term archive",
-      "readonly": true
+      "accept": [] // Read only
     },
-    "/archive/incoming": {} // "/archive/incoming"
+    "/archive/incoming": {
+      "accept": ["store", "delete"]
+    } // "/archive/incoming"
   }
 }
 ```
@@ -332,7 +335,7 @@ In this example:
 
 - `/` accepts normal uploads
 - Uploads anywhere under `/bropdox` expire automatically after 24 hours
-- `/archive` is read-only
+- `/archive` accepts deletion but not uploads
 - `/archive/incoming` is more specific than `/archive`, so uploads are allowed there again under that subtree
 
 Rule behavior:
@@ -340,6 +343,7 @@ Rule behavior:
 - Keys must always start with `/`
 - Backslashes and relative path segments such as `.` and `..` are not allowed
 - `description` is shown in the UI directory list and upload-directory selector
+- `accept` may contain `store` and/or `delete`; when omitted, both remain allowed for backward compatibility
 - The most specific matching directory rule is applied
 - Once `storage` is defined, uploads outside configured virtual directory subtrees are rejected
   To allow uploads at the root directory and its descendants as well, include `/` explicitly as shown above
@@ -411,12 +415,15 @@ If not specified, `uplodah` looks for `./config.json` in the current directory.
   "passwordStrengthCheck": true,
   "maxUploadSizeMb": 500,
   "storage": {
-    "/": {},
+    "/": {
+      "accept": ["store"]
+    },
     "/bropdox": {
+      "accept": ["store", "delete"],
       "expireSeconds": 86400
     },
     "/archive": {
-      "readonly": true
+      "accept": ["delete"]
     }
   }
 }
@@ -426,30 +433,6 @@ All fields are optional.
 Only specify the ones you want to override.
 
 Relative `storageDir` and `usersFile` paths are resolved from the directory containing `config.json`.
-
-### Configuration Reference Table
-
-All settings are resolved with the priority **CLI > environment variable > config.json > default**.
-
-| CLI option                    | Environment variable                 | `config.json` key       | Description                                              | Valid values                               | Default             |
-| :---------------------------- | :----------------------------------- | :---------------------- | :------------------------------------------------------- | :----------------------------------------- | :------------------ |
-| `-p, --port <port>`           | `UPLODAH_PORT`                       | `port`                  | HTTP server listening port                               | 1-65535                                    | `5968`              |
-| `-b, --base-url <url>`        | `UPLODAH_BASE_URL`                   | `baseUrl`               | Fixed external base URL                                  | valid URL                                  | auto-detected       |
-| `-d, --storage-dir <dir>`     | `UPLODAH_STORAGE_DIR`                | `storageDir`            | Storage root directory                                   | valid path                                 | `./storage`         |
-| `-c, --config-file <path>`    | `UPLODAH_CONFIG_FILE`                | N/A                     | Path to the configuration file                           | valid path                                 | `./config.json`     |
-| `-u, --users-file <path>`     | `UPLODAH_USERS_FILE`                 | `usersFile`             | Path to the users database file                          | valid path                                 | `./users.json`      |
-| `-r, --realm <realm>`         | `UPLODAH_REALM`                      | `realm`                 | UI title and server label                                | string                                     | `uplodah [version]` |
-| `-l, --log-level <level>`     | `UPLODAH_LOG_LEVEL`                  | `logLevel`              | Log verbosity                                            | `debug`, `info`, `warn`, `error`, `ignore` | `info`              |
-| `--trusted-proxies <ips>`     | `UPLODAH_TRUSTED_PROXIES`            | `trustedProxies`        | Comma-separated trusted proxy IP list                    | list of IP addresses                       | none                |
-| `--auth-mode <mode>`          | `UPLODAH_AUTH_MODE`                  | `authMode`              | Authentication mode                                      | `none`, `publish`, `full`                  | `none`              |
-| N/A                           | `UPLODAH_SESSION_SECRET`             | `sessionSecret`         | Secret used for session cookies                          | string                                     | auto-generated      |
-| N/A                           | `UPLODAH_PASSWORD_MIN_SCORE`         | `passwordMinScore`      | Minimum password strength score                          | 0-4                                        | `2`                 |
-| N/A                           | `UPLODAH_PASSWORD_STRENGTH_CHECK`    | `passwordStrengthCheck` | Enable password strength checking                        | `true`, `false`                            | `true`              |
-| `--max-upload-size-mb <size>` | `UPLODAH_MAX_UPLOAD_SIZE_MB`         | `maxUploadSizeMb`       | Maximum upload size in MB                                | 1-10000                                    | `100`               |
-| N/A                           | N/A                                  | `storage`               | Per-virtual-directory storage policy                     | object                                     | unset               |
-| N/A                           | `UPLODAH_AUTH_FAILURE_DELAY_ENABLED` | N/A                     | Enable progressive delays for failed auth attempts       | `true`, `false`                            | `true`              |
-| N/A                           | `UPLODAH_AUTH_FAILURE_MAX_DELAY`     | N/A                     | Maximum delay for failed auth attempts (ms)              | number                                     | `10000`             |
-| `--auth-init`                 | N/A                                  | N/A                     | Initialize authentication with an interactive admin user | flag                                       | N/A                 |
 
 ---
 
@@ -732,12 +715,15 @@ Below is an example of `config.json`:
   "logLevel": "info",
   "maxUploadSizeMb": 500,
   "storage": {
-    "/": {},
+    "/": {
+      "accept": ["store"]
+    },
     "/bropdox": {
+      "accept": ["store", "delete"],
       "expireSeconds": 86400
     },
     "/archive": {
-      "readonly": true
+      "accept": ["delete"]
     }
   }
 }
@@ -868,6 +854,30 @@ Without QEMU, you can only build for your native architecture.
   "version": "0.1.0"
 }
 ```
+
+### Configuration Reference Table
+
+All settings are resolved with the priority **CLI > environment variable > config.json > default**.
+
+| CLI option                    | Environment variable                 | `config.json` key       | Description                                              | Valid values                               | Default             |
+| :---------------------------- | :----------------------------------- | :---------------------- | :------------------------------------------------------- | :----------------------------------------- | :------------------ |
+| `-p, --port <port>`           | `UPLODAH_PORT`                       | `port`                  | HTTP server listening port                               | 1-65535                                    | `5968`              |
+| `-b, --base-url <url>`        | `UPLODAH_BASE_URL`                   | `baseUrl`               | Fixed external base URL                                  | valid URL                                  | auto-detected       |
+| `-d, --storage-dir <dir>`     | `UPLODAH_STORAGE_DIR`                | `storageDir`            | Storage root directory                                   | valid path                                 | `./storage`         |
+| `-c, --config-file <path>`    | `UPLODAH_CONFIG_FILE`                | N/A                     | Path to the configuration file                           | valid path                                 | `./config.json`     |
+| `-u, --users-file <path>`     | `UPLODAH_USERS_FILE`                 | `usersFile`             | Path to the users database file                          | valid path                                 | `./users.json`      |
+| `-r, --realm <realm>`         | `UPLODAH_REALM`                      | `realm`                 | UI title and server label                                | string                                     | `uplodah [version]` |
+| `-l, --log-level <level>`     | `UPLODAH_LOG_LEVEL`                  | `logLevel`              | Log verbosity                                            | `debug`, `info`, `warn`, `error`, `ignore` | `info`              |
+| `--trusted-proxies <ips>`     | `UPLODAH_TRUSTED_PROXIES`            | `trustedProxies`        | Comma-separated trusted proxy IP list                    | list of IP addresses                       | none                |
+| `--auth-mode <mode>`          | `UPLODAH_AUTH_MODE`                  | `authMode`              | Authentication mode                                      | `none`, `publish`, `full`                  | `none`              |
+| N/A                           | `UPLODAH_SESSION_SECRET`             | `sessionSecret`         | Secret used for session cookies                          | string                                     | auto-generated      |
+| N/A                           | `UPLODAH_PASSWORD_MIN_SCORE`         | `passwordMinScore`      | Minimum password strength score                          | 0-4                                        | `2`                 |
+| N/A                           | `UPLODAH_PASSWORD_STRENGTH_CHECK`    | `passwordStrengthCheck` | Enable password strength checking                        | `true`, `false`                            | `true`              |
+| `--max-upload-size-mb <size>` | `UPLODAH_MAX_UPLOAD_SIZE_MB`         | `maxUploadSizeMb`       | Maximum upload size in MB                                | 1-10000                                    | `100`               |
+| N/A                           | N/A                                  | `storage`               | Per-virtual-directory storage policy                     | object                                     | unset               |
+| N/A                           | `UPLODAH_AUTH_FAILURE_DELAY_ENABLED` | N/A                     | Enable progressive delays for failed auth attempts       | `true`, `false`                            | `true`              |
+| N/A                           | `UPLODAH_AUTH_FAILURE_MAX_DELAY`     | N/A                     | Maximum delay for failed auth attempts (ms)              | number                                     | `10000`             |
+| `--auth-init`                 | N/A                                  | N/A                     | Initialize authentication with an interactive admin user | flag                                       | N/A                 |
 
 ## Other
 

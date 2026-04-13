@@ -40,6 +40,11 @@ export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'ignore';
 export type AuthMode = 'none' | 'publish' | 'full';
 
 /**
+ * Directory-level storage permission.
+ */
+export type StoragePermission = 'store' | 'delete';
+
+/**
  * Virtual storage rule for an upload directory
  */
 export interface StorageRule {
@@ -47,7 +52,12 @@ export interface StorageRule {
    * Human-readable description shown in the UI for this virtual directory.
    */
   description?: string;
-  readonly?: boolean;
+  /**
+   * Accepted operations in the virtual directory.
+   * @remarks When omitted, both store and delete remain allowed for backward
+   * compatibility.
+   */
+  accept?: StoragePermission[];
   expireSeconds?: number;
 }
 
