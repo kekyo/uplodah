@@ -11,6 +11,7 @@ import {
   AuthenticatedFastifyRequest,
   createConditionalHybridAuthMiddleware,
   FastifyAuthConfig,
+  requireRole,
 } from '../../../middleware/fastifyAuth';
 import { createUrlResolver } from '../../../utils/urlResolver';
 
@@ -54,7 +55,7 @@ const requirePublishRole = (
   request: AuthenticatedFastifyRequest,
   reply: FastifyReply
 ) => {
-  if (!request.user || !['publish', 'admin'].includes(request.user.role)) {
+  if (!requireRole(request, ['publish'])) {
     return reply.status(403).send({ error: 'Upload permission required' });
   }
 

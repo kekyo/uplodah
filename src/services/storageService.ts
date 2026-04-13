@@ -206,6 +206,16 @@ export interface StorageService {
     metadata?: StoredUploadMetadata
   ) => Promise<StoreFileResult>;
   /**
+   * Delete a specific stored file version.
+   * @param rawPublicPath Public file path.
+   * @param uploadId Upload identifier.
+   * @returns True when the version was deleted, otherwise false.
+   */
+  readonly deleteFileVersion: (
+    rawPublicPath: string,
+    uploadId: string
+  ) => Promise<boolean>;
+  /**
    * Resolve the latest stored version for a public file path.
    * @param rawPublicPath Public file path.
    */
@@ -1256,6 +1266,27 @@ export const createStorageService = (
         latestDownloadPath: storedVersion.latestDownloadPath,
         versionDownloadPath: storedVersion.versionDownloadPath,
       };
+    },
+
+    deleteFileVersion: async (rawPublicPath: string, uploadId: string) => {
+      if (!parseUploadId(uploadId)) {
+        return false;
+      }
+
+      const normalizedPath = resolveUploadPublicPath(rawPublicPath);
+      const storedVersion = await resolveStoredVersion(
+        normalizedPath.publicPath,
+        uploadId
+      );
+      if (!storedVersion) {
+        return false;
+      }
+
+      await removeVersionDirectory(
+        path.dirname(storedVersion.absoluteFilePath),
+        storageRoot
+      );
+      return true;
     },
 
     getLatestFileVersion: async (rawPublicPath: string) =>

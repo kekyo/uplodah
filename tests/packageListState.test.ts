@@ -7,6 +7,7 @@ import { describe, expect, test } from 'vitest';
 import {
   buildDirectorySections,
   buildBrowseDirectorySections,
+  canDeleteFileGroupVersions,
   clearDirectoryPanelState,
   clearFileGroupPanelState,
   updateDirectorySummaryFileGroupCount,
@@ -189,6 +190,67 @@ describe('package list panel state helpers', () => {
         files: [nestedFile],
       },
     ]);
+  });
+
+  test('shows delete actions only for writable directories and publish-capable users', () => {
+    const file = {
+      browseDirectoryPath: '/incoming',
+    };
+    const readonlyByDirectoryPath = new Map<string, boolean>([
+      ['/incoming', false],
+      ['/readonly', true],
+    ]);
+
+    expect(
+      canDeleteFileGroupVersions({
+        serverConfig: {
+          authMode: 'none',
+          currentUser: null,
+        },
+        file,
+        readonlyByDirectoryPath,
+      })
+    ).toBe(true);
+    expect(
+      canDeleteFileGroupVersions({
+        serverConfig: {
+          authMode: 'publish',
+          currentUser: {
+            username: 'publisher',
+            role: 'publish',
+            authenticated: true,
+          },
+        },
+        file,
+        readonlyByDirectoryPath,
+      })
+    ).toBe(true);
+    expect(
+      canDeleteFileGroupVersions({
+        serverConfig: {
+          authMode: 'publish',
+          currentUser: {
+            username: 'reader',
+            role: 'read',
+            authenticated: true,
+          },
+        },
+        file,
+        readonlyByDirectoryPath,
+      })
+    ).toBe(false);
+    expect(
+      canDeleteFileGroupVersions({
+        serverConfig: {
+          authMode: 'publish',
+          currentUser: null,
+        },
+        file: {
+          browseDirectoryPath: '/readonly',
+        },
+        readonlyByDirectoryPath,
+      })
+    ).toBe(false);
   });
 
   test('clears cached file-group state when a file-group accordion closes', () => {

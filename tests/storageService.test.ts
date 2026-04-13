@@ -420,6 +420,84 @@ describe('storageService', () => {
     );
   });
 
+  it('should delete a specific version and promote the previous version to latest', async () => {
+    vi.useFakeTimers();
+
+    const service = createService({
+      storage: {
+        '/incoming': {},
+      },
+    });
+    await service.initialize();
+
+    vi.setSystemTime(new Date('2026-04-08T10:00:00.000Z'));
+    const first = await service.storeFile(
+      'incoming/report.txt',
+      Buffer.from('first')
+    );
+
+    vi.setSystemTime(new Date('2026-04-08T10:00:01.000Z'));
+    const second = await service.storeFile(
+      'incoming/report.txt',
+      Buffer.from('second')
+    );
+
+    expect(
+      await service.deleteFileVersion('incoming/report.txt', second.uploadId)
+    ).toBe(true);
+    expect(
+      await service.getLatestFileVersion('incoming/report.txt')
+    ).toMatchObject({
+      uploadId: first.uploadId,
+    });
+    expect(await service.listFileGroupVersions('incoming/report.txt')).toEqual([
+      {
+        uploadId: first.uploadId,
+        uploadedAt: first.uploadedAt,
+        size: first.size,
+        versionDownloadPath: `/api/files/incoming/report.txt/${first.uploadId}`,
+      },
+    ]);
+    await expect(
+      fs.stat(path.join(testDir, 'incoming', 'report.txt', second.uploadId))
+    ).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  });
+
+  it('should remove empty group directories when deleting the last version', async () => {
+    const service = createService({
+      storage: {
+        '/incoming': {},
+        '/readonly': {
+          readonly: true,
+        },
+      },
+    });
+    await service.initialize();
+
+    const stored = await service.storeFile(
+      'incoming/report.txt',
+      Buffer.from('single')
+    );
+
+    expect(
+      await service.deleteFileVersion('incoming/report.txt', stored.uploadId)
+    ).toBe(true);
+    expect(
+      await service.getLatestFileVersion('incoming/report.txt')
+    ).toBeUndefined();
+    expect(await service.listDirectoryFileGroups('/incoming')).toEqual([]);
+    await expect(
+      fs.stat(path.join(testDir, 'incoming', 'report.txt'))
+    ).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+    await expect(
+      service.deleteFileVersion('readonly/report.txt', stored.uploadId)
+    ).rejects.toThrow('Upload directory is read-only');
+  });
+
   it('should remove expired versions when they are scanned', async () => {
     vi.useFakeTimers();
 

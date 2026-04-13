@@ -82,6 +82,7 @@ const renderEntries = ({
   versionsByPublicPath = {
     'dockit-0.5.0.zip': sampleFiles[0].versions,
   },
+  canDeleteFileGroupVersions,
 }: {
   expandedDirectoryPanels: ReadonlySet<string>;
   expandedPanels: ReadonlySet<string>;
@@ -94,6 +95,9 @@ const renderEntries = ({
   versionsByPublicPath?: Readonly<
     Record<string, (typeof sampleFiles)[number]['versions'] | undefined>
   >;
+  canDeleteFileGroupVersions?: (file: {
+    browseDirectoryPath: string;
+  }) => boolean;
 }) =>
   renderToStaticMarkup(
     createElement(
@@ -113,6 +117,8 @@ const renderEntries = ({
         versionsByPublicPath,
         versionErrorsByPublicPath: {},
         versionLoadingPanels: new Set(),
+        canDeleteFileGroupVersions: canDeleteFileGroupVersions ?? (() => false),
+        onDeleteVersionRequest: vi.fn(),
         onDirectoryAccordionChange: vi.fn(),
         onAccordionChange: vi.fn(),
       })
@@ -299,6 +305,7 @@ describe('package list entries', () => {
     const html = renderEntries({
       expandedDirectoryPanels: new Set(['/']),
       expandedPanels: new Set(['dockit-0.5.0.zip']),
+      canDeleteFileGroupVersions: () => true,
     });
 
     expect(html).toContain('aria-expanded="true"');
@@ -315,6 +322,19 @@ describe('package list entries', () => {
     expect(html.match(/Upload:/g)?.length).toBe(1);
     expect(html.match(/Tags:/g)?.length).toBe(1);
     expect(html).toContain('Download');
+    expect(html).toContain('...');
+    expect(html).toContain('aria-label="Actions"');
+  });
+
+  test('hides revision action buttons when delete permission is unavailable', () => {
+    const html = renderEntries({
+      expandedDirectoryPanels: new Set(['/']),
+      expandedPanels: new Set(['dockit-0.5.0.zip']),
+      canDeleteFileGroupVersions: () => false,
+    });
+
+    expect(html).toContain('Download');
+    expect(html).not.toContain('aria-label="Actions"');
   });
 
   test('renders the directory header with a home icon', () => {

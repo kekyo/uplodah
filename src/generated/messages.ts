@@ -1216,6 +1216,34 @@ export const messages = {
     fallback: "Delete" 
   } as SimpleMessageItem,
   /**
+   * FILE_ACTIONS ==> "Actions"
+   */
+  FILE_ACTIONS: { 
+    key: "FILE_ACTIONS", 
+    fallback: "Actions" 
+  } as SimpleMessageItem,
+  /**
+   * CONFIRM_FILE_DELETION_TITLE ==> "Delete file revision"
+   */
+  CONFIRM_FILE_DELETION_TITLE: { 
+    key: "CONFIRM_FILE_DELETION_TITLE", 
+    fallback: "Delete file revision" 
+  } as SimpleMessageItem,
+  /**
+   * CONFIRM_DELETE_FILE_VERSION ==> "Are you sure you want to delete revision "{uploadId}" of "{path}"? This action cannot be undone."
+   */
+  CONFIRM_DELETE_FILE_VERSION: { 
+    key: "CONFIRM_DELETE_FILE_VERSION", 
+    fallback: "Are you sure you want to delete revision \"{uploadId}\" of \"{path}\"? This action cannot be undone." 
+  } as MessageItem<{ uploadId: string; path: string }>,
+  /**
+   * FILE_VERSION_DELETE_FAILED ==> "Failed to delete file revision"
+   */
+  FILE_VERSION_DELETE_FAILED: { 
+    key: "FILE_VERSION_DELETE_FAILED", 
+    fallback: "Failed to delete file revision" 
+  } as SimpleMessageItem,
+  /**
    * CANCEL ==> "Cancel"
    */
   CANCEL: { 
