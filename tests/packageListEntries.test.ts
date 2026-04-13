@@ -8,6 +8,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { TypedMessageProvider } from 'typed-message';
 import { describe, expect, test, vi } from 'vitest';
 import enMessages from '../src/ui/public/locale/en.json';
+import jaMessages from '../src/ui/public/locale/ja.json';
 import {
   PackageListEntries,
   PackageListHeaderTitle,
@@ -133,6 +134,15 @@ const renderFileGroupIcon = (fileName: string) =>
   renderToStaticMarkup(createElement(resolveFileGroupIconComponent(fileName)));
 
 describe('package list entries', () => {
+  test('uses the virtual-directory empty-state message for browse mode', () => {
+    expect(enMessages.NO_FILES_FOUND).toBe(
+      'No virtual directories found in storage.'
+    );
+    expect(jaMessages.NO_FILES_FOUND).toBe(
+      'ストレージに仮想ディレクトリがありません。'
+    );
+  });
+
   test('formats uploaded timestamps as local time plus UTC', () => {
     expect(formatUploadedAt('2026-04-09T07:02:16.000Z', 540)).toBe(
       '2026/04/09 16:02:16 +09 (2026/04/09 07:02:16 UTC)'
@@ -194,6 +204,28 @@ describe('package list entries', () => {
     expect(html).toContain('Shared packages');
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain('data-testid="FolderCopyIcon"');
+  });
+
+  test('renders empty directory accordions with a zero-count chip', () => {
+    const html = renderEntries({
+      expandedDirectoryPanels: new Set(['/empty']),
+      expandedPanels: new Set(),
+      sections: [
+        {
+          directoryPath: '/empty',
+          description: 'Unused',
+          fileGroupCount: 0,
+          files: [],
+        },
+      ],
+      versionsByPublicPath: {},
+    });
+
+    expect(html).toContain('/empty');
+    expect(html).toContain('Unused');
+    expect(html).toContain('0 file groups');
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).not.toContain('dockit-0.5.0.zip');
   });
 
   test('renders nested file groups relative to the section directory', () => {

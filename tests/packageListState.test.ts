@@ -66,6 +66,12 @@ describe('package list panel state helpers', () => {
         fileGroupCount: 2,
         files: [],
       },
+      {
+        directoryPath: '/empty',
+        description: 'Unused',
+        fileGroupCount: 0,
+        files: [],
+      },
     ]);
   });
 

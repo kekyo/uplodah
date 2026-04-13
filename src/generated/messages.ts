@@ -628,11 +628,11 @@ export const messages = {
     fallback: "Error loading files: {error}" 
   } as MessageItem<{ error: string }>,
   /**
-   * NO_FILES_FOUND ==> "No files found in storage."
+   * NO_FILES_FOUND ==> "No virtual directories found in storage."
    */
   NO_FILES_FOUND: { 
     key: "NO_FILES_FOUND", 
-    fallback: "No files found in storage." 
+    fallback: "No virtual directories found in storage." 
   } as SimpleMessageItem,
   /**
    * FILES_HEADER ==> "Files"

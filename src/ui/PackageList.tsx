@@ -284,16 +284,14 @@ export const buildBrowseDirectorySections = (
   directories: readonly DirectorySummary[],
   browseFileGroupsByDirectory: Readonly<Record<string, FileGroupSummary[]>>
 ): DirectorySection[] =>
-  directories
-    .filter((directory) => directory.fileGroupCount > 0)
-    .map((directory) => ({
-      directoryPath: directory.directoryPath,
-      description: directory.description,
-      fileGroupCount: directory.fileGroupCount,
-      files: Array.from(
-        browseFileGroupsByDirectory[directory.directoryPath] ?? []
-      ),
-    }));
+  directories.map((directory) => ({
+    directoryPath: directory.directoryPath,
+    description: directory.description,
+    fileGroupCount: directory.fileGroupCount,
+    files: Array.from(
+      browseFileGroupsByDirectory[directory.directoryPath] ?? []
+    ),
+  }));
 
 const deleteRecordEntry = <TValue,>(
   entries: Readonly<Record<string, TValue>>,
@@ -1327,9 +1325,7 @@ const PackageList = forwardRef<PackageListRef, PackageListProps>(
       }
 
       const visibleDirectoryPaths = new Set(
-        directorySummaries
-          .filter((directory) => directory.fileGroupCount > 0)
-          .map((directory) => directory.directoryPath)
+        directorySummaries.map((directory) => directory.directoryPath)
       );
 
       expandedDirectoryPanels.forEach((directoryPath) => {

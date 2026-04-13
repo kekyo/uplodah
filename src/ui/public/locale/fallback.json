@@ -90,7 +90,7 @@
   "SHOWING_PACKAGES": "Showing {current:number} of {total:number} files",
   "ALL_PACKAGES_LOADED": "All {count:number} files loaded",
   "ERROR_LOADING_FILES": "Error loading files: {error}",
-  "NO_FILES_FOUND": "No files found in storage.",
+  "NO_FILES_FOUND": "No virtual directories found in storage.",
   "FILES_HEADER": "Files",
   "FILE_GROUPS_HEADER": "Directories",
   "FILE_GROUPS_COUNT": "{count:number} file groups",

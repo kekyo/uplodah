@@ -93,7 +93,7 @@
   "SHOWING_PACKAGES": "{total:number}個中{current:number}個のファイルを表示",
   "ALL_PACKAGES_LOADED": "すべて（{count:number}個）のファイルを表示しました",
   "ERROR_LOADING_FILES": "ファイルの読み込みエラー: {error}",
-  "NO_FILES_FOUND": "ストレージにファイルがありません。",
+  "NO_FILES_FOUND": "ストレージに仮想ディレクトリがありません。",
   "FILES_HEADER": "ファイル",
   "FILE_GROUPS_HEADER": "ディレクトリ",
   "FILE_GROUPS_COUNT": "{count:number}件のファイルグループ",
