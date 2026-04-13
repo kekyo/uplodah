@@ -36,6 +36,7 @@ import {
   buildListFilesCommand,
   buildUploadCommand,
   resolveExamplePublicPath,
+  shouldShowRepositoryApiExamples,
   shouldShowUploadCommandInRepositoryInfo,
 } from './utils/commandBuilder';
 import { apiFetch } from './utils/apiClient';
@@ -321,7 +322,7 @@ const AppContent = ({
   const showCommandExamples = () => {
     if (!serverConfig) return false;
     if (shouldHideAppBarButtons()) return false;
-    return shouldShowUploadCommandInRepositoryInfo(serverConfig.authMode);
+    return shouldShowRepositoryApiExamples(serverConfig.authMode);
   };
 
   const showUploadButton = () => {
@@ -415,7 +416,9 @@ const AppContent = ({
       })
     : '';
   const commandExampleItems = [
-    ...(uploadCommand
+    ...(serverConfig &&
+    shouldShowUploadCommandInRepositoryInfo(serverConfig.authMode) &&
+    uploadCommand
       ? [
           {
             label: <TypedMessage message={messages.UPLOAD_COMMAND_LABEL} />,

@@ -10,6 +10,7 @@ import {
   buildUploadCommand,
   resolveExamplePublicPath,
   shouldShowAuthenticatedApiExamples,
+  shouldShowRepositoryApiExamples,
   shouldShowUploadCommandInRepositoryInfo,
 } from '../src/ui/utils/commandBuilder';
 
@@ -109,6 +110,12 @@ describe('commandBuilder', () => {
 
   it('should return undefined when no upload directories are available', () => {
     expect(resolveExamplePublicPath([])).toBeUndefined();
+  });
+
+  it('should show repository API examples for none and publish only', () => {
+    expect(shouldShowRepositoryApiExamples('none')).toBe(true);
+    expect(shouldShowRepositoryApiExamples('publish')).toBe(true);
+    expect(shouldShowRepositoryApiExamples('full')).toBe(false);
   });
 
   it('should show anonymous upload examples only for authMode none', () => {

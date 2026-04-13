@@ -119,7 +119,14 @@ export const buildDownloadCommand = (options: CommandOptions): string => {
 };
 
 /**
- * Whether anonymous UI examples should include upload.
+ * Whether repository info should show API examples.
+ */
+export const shouldShowRepositoryApiExamples = (
+  authMode: RepositoryAuthMode
+): boolean => authMode === 'none' || authMode === 'publish';
+
+/**
+ * Whether repository-info API examples should include upload.
  */
 export const shouldShowUploadCommandInRepositoryInfo = (
   authMode: RepositoryAuthMode

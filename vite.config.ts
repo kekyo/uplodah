@@ -21,11 +21,11 @@ const devConfig: ServerConfig = {
   storageDir: './dev/storage',
   realm: 'uplodah dev',
   trustedProxies: [],
-  authMode: 'none',
+  authMode: 'publish',
   storage: {
     '/': {
       description: 'Test root storage',
-      accept: ['store', 'delete'],
+      accept: ['store'],
     },
     '/tmp': {
       description: 'Temporary storage (60sec)',
