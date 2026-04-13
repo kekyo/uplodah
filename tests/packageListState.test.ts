@@ -9,6 +9,7 @@ import {
   buildBrowseDirectorySections,
   clearDirectoryPanelState,
   clearFileGroupPanelState,
+  updateDirectorySummaryFileGroupCount,
 } from '../src/ui/PackageList';
 
 describe('package list panel state helpers', () => {
@@ -71,6 +72,81 @@ describe('package list panel state helpers', () => {
         description: 'Unused',
         fileGroupCount: 0,
         files: [],
+      },
+    ]);
+  });
+
+  test('uses the loaded file-group count after a directory accordion fetch completes', () => {
+    const loadedFiles = [
+      {
+        publicPath: 'runs/a.zip',
+        displayPath: '/runs/a.zip',
+        directoryPath: '/runs',
+        browseDirectoryPath: '/runs',
+        browseRelativePath: 'a.zip',
+        fileName: 'a.zip',
+        latestUploadId: '20260410_080527_291',
+        latestUploadedAt: '2026-04-10T08:05:27.000Z',
+        latestDownloadPath: '/api/files/runs/a.zip',
+      },
+    ];
+
+    expect(
+      buildBrowseDirectorySections(
+        [
+          {
+            directoryPath: '/runs',
+            description: 'Nightly builds',
+            readonly: true,
+            fileGroupCount: 2,
+          },
+        ],
+        {
+          '/runs': loadedFiles,
+        }
+      )
+    ).toEqual([
+      {
+        directoryPath: '/runs',
+        description: 'Nightly builds',
+        fileGroupCount: 1,
+        files: loadedFiles,
+      },
+    ]);
+  });
+
+  test('persists the loaded file-group count in directory summaries after closing the accordion', () => {
+    expect(
+      updateDirectorySummaryFileGroupCount({
+        directories: [
+          {
+            directoryPath: '/runs',
+            description: 'Nightly builds',
+            readonly: true,
+            fileGroupCount: 2,
+          },
+          {
+            directoryPath: '/empty',
+            description: 'Unused',
+            readonly: true,
+            fileGroupCount: 0,
+          },
+        ],
+        directoryPath: '/runs',
+        fileGroupCount: 1,
+      })
+    ).toEqual([
+      {
+        directoryPath: '/runs',
+        description: 'Nightly builds',
+        readonly: true,
+        fileGroupCount: 1,
+      },
+      {
+        directoryPath: '/empty',
+        description: 'Unused',
+        readonly: true,
+        fileGroupCount: 0,
       },
     ]);
   });

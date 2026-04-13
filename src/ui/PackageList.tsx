@@ -284,14 +284,52 @@ export const buildBrowseDirectorySections = (
   directories: readonly DirectorySummary[],
   browseFileGroupsByDirectory: Readonly<Record<string, FileGroupSummary[]>>
 ): DirectorySection[] =>
-  directories.map((directory) => ({
-    directoryPath: directory.directoryPath,
-    description: directory.description,
-    fileGroupCount: directory.fileGroupCount,
-    files: Array.from(
-      browseFileGroupsByDirectory[directory.directoryPath] ?? []
-    ),
-  }));
+  directories.map((directory) => {
+    const loadedFiles = browseFileGroupsByDirectory[directory.directoryPath];
+
+    return {
+      directoryPath: directory.directoryPath,
+      description: directory.description,
+      fileGroupCount: loadedFiles?.length ?? directory.fileGroupCount,
+      files: Array.from(loadedFiles ?? []),
+    };
+  });
+
+/**
+ * Update the stored file-group count for a browse directory summary.
+ * @param directories Current directory summaries.
+ * @param directoryPath Directory path to update.
+ * @param fileGroupCount File-group count resolved after loading the directory.
+ * @returns Directory summaries with the matching directory count updated.
+ */
+export const updateDirectorySummaryFileGroupCount = ({
+  directories,
+  directoryPath,
+  fileGroupCount,
+}: {
+  directories: readonly DirectorySummary[];
+  directoryPath: string;
+  fileGroupCount: number;
+}): DirectorySummary[] => {
+  let changed = false;
+
+  const nextDirectories = directories.map((directory) => {
+    if (directory.directoryPath !== directoryPath) {
+      return directory;
+    }
+    if (directory.fileGroupCount === fileGroupCount) {
+      return directory;
+    }
+
+    changed = true;
+    return {
+      ...directory,
+      fileGroupCount,
+    };
+  });
+
+  return changed ? nextDirectories : Array.from(directories);
+};
 
 const deleteRecordEntry = <TValue,>(
   entries: Readonly<Record<string, TValue>>,
@@ -1213,6 +1251,13 @@ const PackageList = forwardRef<PackageListRef, PackageListProps>(
             ...currentFileGroups,
             [directoryPath]: data.items,
           }));
+          setDirectorySummaries((currentDirectories) =>
+            updateDirectorySummaryFileGroupCount({
+              directories: currentDirectories,
+              directoryPath,
+              fileGroupCount: data.items.length,
+            })
+          );
         } catch (requestError) {
           if (
             requestError instanceof DOMException &&
