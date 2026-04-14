@@ -8,6 +8,7 @@ let sessionExpiredHandler:
   | ((authMode: 'none' | 'publish' | 'full') => void)
   | null = null;
 let currentAuthMode: 'none' | 'publish' | 'full' | null = null;
+let sessionExpiryHandled = false;
 
 /**
  * Set the session expired handler and auth mode
@@ -20,6 +21,15 @@ export const setSessionHandler = (
 ) => {
   sessionExpiredHandler = handler;
   currentAuthMode = authMode;
+};
+
+/**
+ * Resets the session expiry notification state after successful login.
+ * @remarks Call this once authentication has been restored so future
+ * session expiry events can be surfaced again.
+ */
+export const resetSessionExpiryHandling = (): void => {
+  sessionExpiryHandled = false;
 };
 
 /**
@@ -51,7 +61,8 @@ export const apiFetch = async (
     // Don't handle 401 for login/logout endpoints
     if (!path.includes('api/auth/login') && !path.includes('api/auth/logout')) {
       // If session handler is set, use it to handle the expired session
-      if (sessionExpiredHandler && currentAuthMode) {
+      if (sessionExpiredHandler && currentAuthMode && !sessionExpiryHandled) {
+        sessionExpiryHandled = true;
         // Clone the response before calling handler since it might be consumed
         const clonedResponse = response.clone();
         sessionExpiredHandler(currentAuthMode);
