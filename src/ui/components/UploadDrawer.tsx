@@ -42,6 +42,10 @@ import { TypedMessage, useTypedMessage } from 'typed-message';
 import { messages } from '../../generated/messages';
 import { apiFetch } from '../utils/apiClient';
 import type { StorageDirectoryDescriptor } from '../../types';
+import {
+  createUploadFileSelection,
+  type UploadFileSelectionMode,
+} from '../uploadFileSelection';
 
 interface UploadDrawerProps {
   open: boolean;
@@ -258,9 +262,18 @@ const UploadDrawer = ({
     setSelectedDirectory(uploadDirectories[0] || '/');
   }, [selectedDirectory, uploadDirectories]);
 
-  const handleFileSelection = (files: File[]) => {
-    if (files.length > 0) {
-      setSelectedFiles(files);
+  const handleFileSelection = (
+    files: File[],
+    mode: UploadFileSelectionMode
+  ) => {
+    const selection = createUploadFileSelection({
+      currentFiles: selectedFiles,
+      incomingFiles: files,
+      mode,
+    });
+
+    if (selection.acceptedFiles.length > 0) {
+      setSelectedFiles(selection.selectedFiles);
       setUploadResults([]);
       setCurrentUploadIndex(-1);
     }
@@ -269,7 +282,7 @@ const UploadDrawer = ({
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (files && files.length > 0) {
-      handleFileSelection(Array.from(files));
+      handleFileSelection(Array.from(files), 'replace');
     }
   };
 
@@ -386,7 +399,7 @@ const UploadDrawer = ({
 
     const files = event.dataTransfer.files;
     if (files && files.length > 0) {
-      handleFileSelection(Array.from(files));
+      handleFileSelection(Array.from(files), 'append');
     }
   };
 
