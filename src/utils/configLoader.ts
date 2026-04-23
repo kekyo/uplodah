@@ -31,6 +31,7 @@ export interface ConfigFile {
   passwordMinScore?: number;
   passwordStrengthCheck?: boolean;
   maxUploadSizeMb?: number;
+  maxDownloadSizeMb?: number;
 }
 
 /**
@@ -268,6 +269,19 @@ const validateConfig = (
   } else if (config.maxUploadSizeMb !== undefined) {
     logger?.warn(
       `Invalid maxUploadSizeMb in config.json: ${config.maxUploadSizeMb}. Must be between 1 and 10000 MB.`
+    );
+  }
+
+  // Validate maxDownloadSizeMb
+  if (
+    typeof config.maxDownloadSizeMb === 'number' &&
+    config.maxDownloadSizeMb >= 1 &&
+    config.maxDownloadSizeMb <= 10000
+  ) {
+    validated.maxDownloadSizeMb = config.maxDownloadSizeMb;
+  } else if (config.maxDownloadSizeMb !== undefined) {
+    logger?.warn(
+      `Invalid maxDownloadSizeMb in config.json: ${config.maxDownloadSizeMb}. Must be between 1 and 10000 MB.`
     );
   }
 

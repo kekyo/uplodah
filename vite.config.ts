@@ -25,7 +25,7 @@ const devConfig: ServerConfig = {
   storage: {
     '/': {
       description: 'Test root storage',
-      accept: ['store', 'delete'],
+      accept: ['store'],
     },
     '/tmp': {
       description: 'Temporary storage (60sec)',
@@ -155,6 +155,7 @@ export default defineConfig(({ mode, command }) => {
           'zlib',
           'path',
           'url',
+          'worker_threads',
           'xml2js',
           'events',
           'stream',

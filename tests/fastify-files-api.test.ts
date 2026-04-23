@@ -6,7 +6,15 @@
 import { beforeEach, describe, expect, test } from 'vitest';
 import fs from 'fs/promises';
 import path from 'path';
+import AdmZip from 'adm-zip';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
 import { startFastifyServer } from '../src/server';
+import {
+  formatArchiveTimestamp,
+  sanitizeArchiveRequestFileName,
+  sanitizeArchiveRealmFileName,
+} from '../src/routes/api/files/index';
 import { createConsoleLogger } from '../src/logger';
 import { ServerConfig } from '../src/types';
 import {
@@ -15,6 +23,8 @@ import {
   testGlobalLogLevel,
 } from './helpers/test-helper.js';
 import { createUsersJsonFile } from './helpers/jsonAuth';
+
+dayjs.extend(utc);
 
 describe('Fastify files and upload API', () => {
   let testBaseDir: string;
@@ -110,6 +120,45 @@ describe('Fastify files and upload API', () => {
       }
     );
 
+  const waitForArchiveCompletion = async (
+    statusPath: string
+  ): Promise<{ downloadPath: string }> => {
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const statusResponse = await fetch(
+        `http://localhost:${serverPort}${statusPath}`
+      );
+      expect(statusResponse.status).toBe(200);
+      const statusData = await statusResponse.json();
+      if (statusData.status === 'completed') {
+        expect(statusData.downloadPath).toEqual(expect.any(String));
+        return {
+          downloadPath: statusData.downloadPath,
+        };
+      }
+      expect(['pending', 'processing']).toContain(statusData.status);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    throw new Error('Archive request did not complete');
+  };
+
+  test('should sanitize archive realm file names', () => {
+    expect(sanitizeArchiveRealmFileName('Test Files API / full:*?"<>|')).toBe(
+      'Test-Files-API-full'
+    );
+    expect(sanitizeArchiveRealmFileName('...')).toBe('uplodah');
+    expect(sanitizeArchiveRealmFileName('CON')).toBe('_CON');
+    expect(sanitizeArchiveRequestFileName('../2026/04/20 12:34:56')).toBe(
+      '2026-04-20-12-34-56'
+    );
+  });
+
+  test('should format archive timestamps', () => {
+    expect(formatArchiveTimestamp(dayjs.utc('2026-04-23T01:02:03.000Z'))).toBe(
+      '20260423_010203'
+    );
+  });
+
   test('should upload, list, and download files without authentication', async () => {
     const server = await startServer('none');
 
@@ -146,6 +195,141 @@ describe('Fastify files and upload API', () => {
       );
       expect(specificResponse.status).toBe(200);
       expect(await specificResponse.text()).toBe('hello uplodah');
+    } finally {
+      await server.close();
+    }
+  }, 30000);
+
+  test('should create ZIP archives for selected file versions', async () => {
+    const server = await startServer('none', {
+      storage: {
+        '/incoming': {},
+      },
+    });
+
+    try {
+      const firstUpload = await uploadFile('incoming/report.txt', 'first');
+      expect(firstUpload.status).toBe(201);
+      const firstUploadData = await firstUpload.json();
+
+      const secondUpload = await uploadFile('incoming/report.txt', 'second');
+      expect(secondUpload.status).toBe(201);
+      const secondUploadData = await secondUpload.json();
+
+      const archiveRequestResponse = await fetch(
+        `http://localhost:${serverPort}/api/files/archive-requests`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            archiveFileName: '20260420_123456',
+            items: [
+              {
+                publicPath: 'incoming/report.txt',
+                uploadId: firstUploadData.uploadId,
+              },
+              {
+                publicPath: 'incoming/report.txt',
+                uploadId: secondUploadData.uploadId,
+              },
+            ],
+          }),
+        }
+      );
+      expect(archiveRequestResponse.status).toBe(200);
+      const archiveRequestData = await archiveRequestResponse.json();
+      expect(archiveRequestData.requestId).toEqual(expect.any(String));
+      expect(['pending', 'processing', 'completed']).toContain(
+        archiveRequestData.status
+      );
+      expect(archiveRequestData.downloadPath).toMatch(
+        /^\/api\/files\/archive-requests\/.+/
+      );
+      expect(archiveRequestData.statusPath).toBe(
+        `${archiveRequestData.downloadPath}/status`
+      );
+      expect(archiveRequestData.downloadPath).not.toContain('20260420_123456');
+      expect(archiveRequestData.statusPath).not.toContain('20260420_123456');
+
+      const archiveStatusData = await waitForArchiveCompletion(
+        archiveRequestData.statusPath
+      );
+
+      const archiveResponse = await fetch(
+        `http://localhost:${serverPort}${archiveStatusData.downloadPath}`
+      );
+      expect(archiveResponse.status).toBe(200);
+      expect(archiveResponse.headers.get('content-type')).toContain(
+        'application/zip'
+      );
+      expect(archiveResponse.headers.get('content-disposition')).toContain(
+        'attachment;'
+      );
+      expect(archiveResponse.headers.get('content-disposition')).toMatch(
+        /filename\*=UTF-8''Test-Files-API-none_20260420_123456\.zip/
+      );
+
+      const zip = new AdmZip(Buffer.from(await archiveResponse.arrayBuffer()));
+      expect(
+        zip
+          .getEntry(
+            `incoming/report.txt/${firstUploadData.uploadId}/report.txt`
+          )
+          ?.getData()
+          .toString('utf-8')
+      ).toBe('first');
+      expect(
+        zip
+          .getEntry(
+            `incoming/report.txt/${secondUploadData.uploadId}/report.txt`
+          )
+          ?.getData()
+          .toString('utf-8')
+      ).toBe('second');
+
+      const repeatedArchiveResponse = await fetch(
+        `http://localhost:${serverPort}${archiveStatusData.downloadPath}`
+      );
+      expect(repeatedArchiveResponse.status).toBe(404);
+    } finally {
+      await server.close();
+    }
+  }, 30000);
+
+  test('should reject ZIP archive requests over the download size limit', async () => {
+    const server = await startServer('none', {
+      maxDownloadSizeMb: 0.000001,
+    });
+
+    try {
+      const uploadResponse = await uploadFile('report.txt', 'too large');
+      expect(uploadResponse.status).toBe(201);
+      const uploadData = await uploadResponse.json();
+
+      const archiveRequestResponse = await fetch(
+        `http://localhost:${serverPort}/api/files/archive-requests`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            items: [
+              {
+                publicPath: 'report.txt',
+                uploadId: uploadData.uploadId,
+              },
+            ],
+          }),
+        }
+      );
+
+      expect(archiveRequestResponse.status).toBe(413);
+      expect(await archiveRequestResponse.json()).toEqual({
+        error: 'Selected files exceed maximum download size',
+      });
     } finally {
       await server.close();
     }
@@ -329,7 +513,7 @@ describe('Fastify files and upload API', () => {
     }
   }, 30000);
 
-  test('should allow a read-only user to delete their own uploaded revision', async () => {
+  test('should allow a read-only user to delete their own uploaded version', async () => {
     const server = await startServer('publish');
 
     try {

@@ -198,6 +198,7 @@ export const createFastifyInstance = async (
 
   // Create Fastify instance with configured logger and URL rewriting
   const maxUploadSizeMb = config.maxUploadSizeMb || 100; // Default to 100MB if not configured
+  const maxDownloadSizeMb = config.maxDownloadSizeMb || 100; // Default to 100MB if not configured
   const fastify: FastifyInstance = Fastify({
     logger: createPinoLoggerConfig(logger, config.logLevel),
     bodyLimit: 1024 * 1024 * maxUploadSizeMb, // Configurable limit for package uploads
@@ -572,6 +573,7 @@ export const createFastifyInstance = async (
       version: version,
       git_commit_hash: git_commit_hash,
       serverUrl: serverUrl,
+      maxDownloadSizeMb,
       authMode: authMode,
       authEnabled: {
         general: authService.isAuthRequired('general'),
@@ -600,6 +602,7 @@ export const createFastifyInstance = async (
           logger,
           realm: config.realm || `${packageName} ${version}`,
           serverUrl,
+          maxDownloadSizeMb,
         });
       },
       { prefix: '/api/ui' }
@@ -621,6 +624,8 @@ export const createFastifyInstance = async (
             authConfig,
             logger,
             urlResolver,
+            realm: config.realm || `${packageName} ${version}`,
+            maxDownloadSizeMb,
           },
           locker
         );

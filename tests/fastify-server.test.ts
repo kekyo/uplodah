@@ -95,6 +95,7 @@ describe('Fastify server basics', () => {
       const data = await response.json();
       expect(data).toHaveProperty('name', 'uplodah');
       expect(data).toHaveProperty('authMode', 'none');
+      expect(data).toHaveProperty('maxDownloadSizeMb', 100);
       expect(data).toHaveProperty('storageDirectories', ['/']);
       expect(data).toHaveProperty('storageDirectoryDetails', [
         {

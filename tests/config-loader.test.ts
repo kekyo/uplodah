@@ -35,6 +35,7 @@ describe('config-loader', () => {
         usersFile: './auth/users.json',
         authMode: 'publish',
         maxUploadSizeMb: 250,
+        maxDownloadSizeMb: 350,
         storage: {
           '/incoming': {
             description: 'Incoming artifacts',
@@ -57,6 +58,7 @@ describe('config-loader', () => {
       usersFile: resolve(testDir, 'auth/users.json'),
       authMode: 'publish',
       maxUploadSizeMb: 250,
+      maxDownloadSizeMb: 350,
       storage: {
         '/incoming': {
           description: 'Incoming artifacts',
@@ -82,6 +84,7 @@ describe('config-loader', () => {
         authMode: 'custom',
         trustedProxies: ['192.168.1.1', 123, '10.0.0.1'],
         maxUploadSizeMb: 0,
+        maxDownloadSizeMb: 0,
       })
     );
 
@@ -166,6 +169,29 @@ describe('config-loader', () => {
     );
     expect(
       (await loadConfigFromPath(configPath)).maxUploadSizeMb
+    ).toBeUndefined();
+  });
+
+  it('should validate maxDownloadSizeMb bounds', async () => {
+    const configPath = join(testDir, 'config.json');
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        maxDownloadSizeMb: 10000,
+      })
+    );
+    expect((await loadConfigFromPath(configPath)).maxDownloadSizeMb).toBe(
+      10000
+    );
+
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        maxDownloadSizeMb: 10001,
+      })
+    );
+    expect(
+      (await loadConfigFromPath(configPath)).maxDownloadSizeMb
     ).toBeUndefined();
   });
 
