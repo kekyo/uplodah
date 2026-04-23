@@ -7,7 +7,6 @@ import { defineConfig } from 'vite';
 import { resolve } from 'path';
 import { fileURLToPath } from 'url';
 import react from '@vitejs/plugin-react';
-import dts from 'unplugin-dts/vite';
 import screwUp from 'screw-up';
 import prettierMax from 'prettier-max';
 import typedMessage from 'typed-message/vite';
@@ -120,10 +119,6 @@ export default defineConfig(({ mode, command }) => {
         outputPath: resolve(__dirname, 'src/generated/messages.ts'),
         fallbackPriorityOrder: ['ja', 'en', 'fallback'],
       }),
-      dts({
-        insertTypesEntry: true,
-        exclude: ['src/ui/**/*', 'src/plugins/**/*'],
-      }),
       screwUp({
         outputMetadataFile: true,
       }),
@@ -134,16 +129,14 @@ export default defineConfig(({ mode, command }) => {
     build: {
       emptyOutDir: true, // Clean on first build
       chunkSizeWarningLimit: 10000,
-      // Build server code as library
+      // Build the CLI as the only distributed executable.
       lib: {
         entry: {
-          index: resolve(__dirname, 'src/index.ts'),
           cli: resolve(__dirname, 'src/cli.ts'),
         },
         name: 'uplodah',
-        fileName: (format, entryName) =>
-          `${entryName}.${format === 'es' ? 'mjs' : 'cjs'}`,
-        formats: ['es', 'cjs'],
+        fileName: (_format, entryName) => `${entryName}.mjs`,
+        formats: ['es'],
       },
       rolldownOptions: {
         external: [
@@ -156,7 +149,6 @@ export default defineConfig(({ mode, command }) => {
           'path',
           'url',
           'worker_threads',
-          'xml2js',
           'events',
           'stream',
           'buffer',

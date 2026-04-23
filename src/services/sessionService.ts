@@ -32,7 +32,7 @@ export interface CreateSessionRequest {
 /**
  * Session service configuration
  */
-export interface SessionServiceConfig {
+interface SessionServiceConfig {
   logger: Logger;
   cleanupIntervalMinutes?: number; // Default: 60 minutes
 }

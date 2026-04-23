@@ -37,7 +37,7 @@ dayjs.extend(utc);
 /**
  * Files routes configuration.
  */
-export interface FilesRoutesConfig {
+interface FilesRoutesConfig {
   storageService: StorageService;
   authService: AuthService;
   authConfig: FastifyAuthConfig;
@@ -50,7 +50,7 @@ export interface FilesRoutesConfig {
 /**
  * File version selected for an archive download.
  */
-export interface FileArchiveSelectionItem {
+interface FileArchiveSelectionItem {
   /** Public file path relative to the storage root. */
   publicPath: string;
   /** Upload identifier of the selected version. */
@@ -60,7 +60,7 @@ export interface FileArchiveSelectionItem {
 /**
  * POST /api/files/archive-requests request body.
  */
-export interface CreateFileArchiveRequestBody {
+interface CreateFileArchiveRequestBody {
   /** Selected file versions to include in the archive. */
   items: FileArchiveSelectionItem[];
   /** Browser-generated archive file name without the .zip extension. */
@@ -70,7 +70,7 @@ export interface CreateFileArchiveRequestBody {
 /**
  * POST /api/files/archive-requests response body.
  */
-export interface CreateFileArchiveResponse {
+interface CreateFileArchiveResponse {
   /** Archive request identifier. */
   requestId: string;
   /** Current archive generation status. */
@@ -84,7 +84,7 @@ export interface CreateFileArchiveResponse {
 /**
  * Archive generation status returned to the browser.
  */
-export type FileArchiveRequestStatus =
+type FileArchiveRequestStatus =
   | 'pending'
   | 'processing'
   | 'completed'
@@ -93,7 +93,7 @@ export type FileArchiveRequestStatus =
 /**
  * GET /api/files/archive-requests/:requestId/status response body.
  */
-export interface FileArchiveStatusResponse {
+interface FileArchiveStatusResponse {
   /** Current archive generation status. */
   status: FileArchiveRequestStatus;
   /** Relative download path, present when the archive is completed. */

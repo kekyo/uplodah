@@ -32,7 +32,7 @@ import {
 /**
  * Configuration for UI routes
  */
-export interface UiRoutesConfig {
+interface UiRoutesConfig {
   userService: UserService;
   sessionService: SessionService;
   authService: AuthService;
@@ -49,16 +49,9 @@ export interface UiRoutesConfig {
 }
 
 /**
- * POST /api/ui/config request body (empty object)
- */
-export interface ConfigRequest {
-  // Empty object for consistency
-}
-
-/**
  * POST /api/ui/config response
  */
-export interface ConfigResponse {
+interface ConfigResponse {
   realm: string;
   name: string;
   version: string;
@@ -87,14 +80,14 @@ export interface ConfigResponse {
 /**
  * GET /api/ui/browse/directories response
  */
-export interface BrowseDirectoriesResponse {
+interface BrowseDirectoriesResponse {
   items: StoredDirectoryInfo[];
 }
 
 /**
  * GET /api/ui/browse/file-groups response
  */
-export interface BrowseFileGroupsResponse {
+interface BrowseFileGroupsResponse {
   directoryPath: string;
   items: StoredFileGroupSummaryInfo[];
 }
@@ -102,7 +95,7 @@ export interface BrowseFileGroupsResponse {
 /**
  * GET /api/ui/browse/versions response
  */
-export interface BrowseVersionsResponse {
+interface BrowseVersionsResponse {
   publicPath: string;
   items: Array<StoredFileVersionInfo & { canDelete: boolean }>;
 }
@@ -110,7 +103,7 @@ export interface BrowseVersionsResponse {
 /**
  * GET /api/ui/browse/search response
  */
-export interface BrowseSearchResponse {
+interface BrowseSearchResponse {
   query: string;
   items: StoredFileGroupSummaryInfo[];
 }
@@ -118,7 +111,7 @@ export interface BrowseSearchResponse {
 /**
  * POST /api/ui/users request body for user management
  */
-export interface UserManagementRequest {
+interface UserManagementRequest {
   action: 'list' | 'create' | 'delete' | 'update';
   username?: string;
   password?: string;
@@ -128,7 +121,7 @@ export interface UserManagementRequest {
 /**
  * User list response
  */
-export interface UserListResponse {
+interface UserListResponse {
   users: Array<{
     id: string;
     username: string;
@@ -141,7 +134,7 @@ export interface UserListResponse {
 /**
  * User creation response
  */
-export interface UserCreateResponse {
+interface UserCreateResponse {
   user: {
     id: string;
     username: string;
@@ -154,22 +147,15 @@ export interface UserCreateResponse {
 /**
  * User deletion response
  */
-export interface UserDeleteResponse {
+interface UserDeleteResponse {
   success: boolean;
   message: string;
 }
 
 /**
- * API password regeneration request (empty for current user)
- */
-export interface ApiPasswordRegenerateRequest {
-  // Empty object - regenerates API password for current user
-}
-
-/**
  * API password regeneration response
  */
-export interface ApiPasswordRegenerateResponse {
+interface ApiPasswordRegenerateResponse {
   apiPassword: string;
   username: string;
 }
@@ -177,7 +163,7 @@ export interface ApiPasswordRegenerateResponse {
 /**
  * Password change request
  */
-export interface PasswordChangeRequest {
+interface PasswordChangeRequest {
   currentPassword?: string; // Required for self password change
   newPassword: string;
   username?: string; // For admin changing other user's password
@@ -186,7 +172,7 @@ export interface PasswordChangeRequest {
 /**
  * Password change response
  */
-export interface PasswordChangeResponse {
+interface PasswordChangeResponse {
   success: boolean;
   message: string;
 }

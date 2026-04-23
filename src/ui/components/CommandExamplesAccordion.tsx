@@ -19,7 +19,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 /**
  * A command example displayed inside the command examples accordion.
  */
-export interface CommandExamplesAccordionItem {
+interface CommandExamplesAccordionItem {
   /**
    * Label shown before the command body.
    */
@@ -41,7 +41,7 @@ export interface CommandExamplesAccordionItem {
 /**
  * Props for the command examples accordion.
  */
-export interface CommandExamplesAccordionProps {
+interface CommandExamplesAccordionProps {
   /**
    * Title displayed in the accordion summary row.
    */

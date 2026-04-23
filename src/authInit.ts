@@ -16,14 +16,6 @@ import {
 import { promptInput, promptPassword } from './utils/prompt';
 
 /**
- * Options for auth initialization
- */
-export interface AuthInitOptions {
-  configDir: string;
-  logger: Logger;
-}
-
-/**
  * Check if users.json already exists
  */
 const checkUsersFileExists = async (

@@ -18,7 +18,7 @@ import { createUrlResolver } from '../../../utils/urlResolver';
 /**
  * Upload routes configuration.
  */
-export interface UploadRoutesConfig {
+interface UploadRoutesConfig {
   storageService: StorageService;
   authService: AuthService;
   authConfig: FastifyAuthConfig;

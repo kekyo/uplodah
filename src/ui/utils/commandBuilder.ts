@@ -3,13 +3,13 @@
 // Under MIT.
 // https://github.com/kekyo/uplodah
 
-export interface ServerUrlInfo {
+interface ServerUrlInfo {
   baseUrl?: string;
   port: number;
   isHttps: boolean;
 }
 
-export interface CommandOptions {
+interface CommandOptions {
   serverUrl: ServerUrlInfo;
   publicPath?: string;
   uploadId?: string;
@@ -19,7 +19,7 @@ export interface CommandOptions {
   apiPassword?: string;
 }
 
-export type RepositoryAuthMode = 'none' | 'publish' | 'full';
+type RepositoryAuthMode = 'none' | 'publish' | 'full';
 
 const resolveServerOrigin = (serverUrl: ServerUrlInfo): string =>
   serverUrl.baseUrl

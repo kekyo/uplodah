@@ -8,7 +8,7 @@ import { Logger, AuthMode } from '../types';
 /**
  * Authentication mode service configuration
  */
-export interface AuthModeServiceConfig {
+interface AuthModeServiceConfig {
   authMode: AuthMode;
   logger: Logger;
 }

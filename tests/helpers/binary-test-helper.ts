@@ -24,36 +24,6 @@ export const isPNGHeader = (buffer: Buffer): boolean => {
 };
 
 /**
- * Check if buffer contains ICO file header
- * ICO header: 0x00 0x00 0x01 0x00
- */
-export const isICOHeader = (buffer: Buffer): boolean => {
-  if (buffer.length < 4) return false;
-  return (
-    buffer[0] === 0x00 &&
-    buffer[1] === 0x00 &&
-    buffer[2] === 0x01 &&
-    buffer[3] === 0x00
-  );
-};
-
-/**
- * Compare two binary files for equality
- */
-export const compareBinaryFiles = async (
-  file1Path: string,
-  file2Path: string
-): Promise<boolean> => {
-  try {
-    const buffer1 = await fs.readFile(file1Path);
-    const buffer2 = await fs.readFile(file2Path);
-    return buffer1.equals(buffer2);
-  } catch (error) {
-    return false;
-  }
-};
-
-/**
  * Check if buffer contains UTF-8 replacement characters (0xEF 0xBF 0xBD)
  * This indicates binary data corruption when converted to string
  */
@@ -71,7 +41,7 @@ export const hasReplacementCharacters = (buffer: Buffer): boolean => {
 };
 
 /**
- * Get file statistics for comparison
+ * Get file statistics for comparison.
  */
 export const getFileStats = async (filePath: string) => {
   try {
@@ -79,7 +49,6 @@ export const getFileStats = async (filePath: string) => {
     return {
       size: buffer.length,
       isPNG: isPNGHeader(buffer),
-      isICO: isICOHeader(buffer),
       hasReplacementChars: hasReplacementCharacters(buffer),
       firstBytes: buffer.slice(0, 16).toString('hex'),
     };

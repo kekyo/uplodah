@@ -4,7 +4,7 @@
 // https://github.com/kekyo/uplodah
 
 import { readFile } from 'fs/promises';
-import { join, resolve } from 'path';
+import { resolve } from 'path';
 import JSON5 from 'json5';
 import {
   LogLevel,
@@ -17,7 +17,7 @@ import {
 /**
  * Configuration file structure for uplodah
  */
-export interface ConfigFile {
+interface ConfigFile {
   port?: number;
   baseUrl?: string;
   storageDir?: string;
@@ -326,19 +326,4 @@ export const loadConfigFromPath = async (
       return {};
     }
   }
-};
-
-/**
- * Loads configuration from a config.json file in the specified directory
- * @param configDir Directory containing config.json
- * @param logger Optional logger for warnings
- * @returns Parsed and validated configuration object, or empty object if file doesn't exist or is invalid
- * @deprecated Use loadConfigFromPath instead
- */
-export const loadConfigFromFile = async (
-  configDir: string,
-  logger?: Logger
-): Promise<ConfigFile> => {
-  const configPath = join(configDir, 'config.json');
-  return loadConfigFromPath(configPath, logger);
 };

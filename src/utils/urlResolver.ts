@@ -20,7 +20,7 @@ interface GenericRequest {
 /**
  * Configuration for URL resolver
  */
-export interface UrlResolverConfig {
+interface UrlResolverConfig {
   baseUrl?: string;
   trustedProxies?: string[];
 }
@@ -28,7 +28,7 @@ export interface UrlResolverConfig {
 /**
  * Result of URL resolution
  */
-export interface ResolvedUrl {
+interface ResolvedUrl {
   baseUrl: string;
   isFixed: boolean;
 }
