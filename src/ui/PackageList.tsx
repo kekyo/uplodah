@@ -190,6 +190,22 @@ interface PackageListEntriesProps {
   onAccordionChange: (publicPath: string, isExpanded: boolean) => void;
 }
 
+type SearchableFileGroup = Pick<
+  FileGroupSummary,
+  | 'publicPath'
+  | 'displayPath'
+  | 'directoryPath'
+  | 'browseDirectoryPath'
+  | 'browseRelativePath'
+  | 'fileName'
+  | 'latestUploadId'
+>;
+
+type SearchableFileVersion = Pick<
+  FileVersion,
+  'uploadId' | 'uploadedBy' | 'tags'
+>;
+
 /**
  * Decide whether the package list should temporarily replace the UI with the
  * initial full-screen loading indicator.
@@ -279,6 +295,66 @@ export const formatUploadedAt = (
 const buildFileGroupLabel = (
   file: Pick<FileGroupSummary, 'browseRelativePath' | 'displayPath'>
 ): string => file.browseRelativePath || file.displayPath;
+
+const splitSearchTerms = (searchQuery: string): string[] =>
+  searchQuery
+    .split(/[,\s]+/)
+    .map((term) => term.trim().toLowerCase())
+    .filter((term) => term.length > 0);
+
+const includesSearchTerm = (
+  value: string | undefined,
+  searchTerm: string
+): boolean => value?.toLowerCase().includes(searchTerm) === true;
+
+const fileGroupMatchesSearchTerm = (
+  file: SearchableFileGroup,
+  searchTerm: string
+): boolean =>
+  includesSearchTerm(file.displayPath, searchTerm) ||
+  includesSearchTerm(file.directoryPath, searchTerm) ||
+  includesSearchTerm(file.browseDirectoryPath, searchTerm) ||
+  includesSearchTerm(file.browseRelativePath, searchTerm) ||
+  includesSearchTerm(file.fileName, searchTerm) ||
+  includesSearchTerm(file.latestUploadId, searchTerm);
+
+const fileVersionMatchesSearchTerm = (
+  version: SearchableFileVersion,
+  searchTerm: string
+): boolean =>
+  includesSearchTerm(version.uploadId, searchTerm) ||
+  includesSearchTerm(version.uploadedBy, searchTerm) ||
+  version.tags?.some((tag) => includesSearchTerm(tag, searchTerm)) === true;
+
+/**
+ * Filter a loaded version list to versions matching the active search query.
+ * @param params File group, loaded versions, and the active query text.
+ * @returns Versions that should remain visible for the current search.
+ * @remarks Terms matching file-group fields keep all versions visible. Terms
+ * matching only version fields narrow the list to matching versions.
+ */
+export const filterFileVersionsForSearch = ({
+  file,
+  versions,
+  searchQuery,
+}: {
+  file: SearchableFileGroup;
+  versions: readonly FileVersion[];
+  searchQuery: string;
+}): readonly FileVersion[] => {
+  const searchTerms = splitSearchTerms(searchQuery);
+  if (searchTerms.length === 0) {
+    return versions;
+  }
+
+  return versions.filter((version) =>
+    searchTerms.every(
+      (searchTerm) =>
+        fileGroupMatchesSearchTerm(file, searchTerm) ||
+        fileVersionMatchesSearchTerm(version, searchTerm)
+    )
+  );
+};
 
 /**
  * Build directory sections for file-group lists using the browse directory
@@ -463,16 +539,28 @@ export const resolveBrowseDirectoryPathForPublicPath = (
 export const filterSelectedArchiveItemsForVisibleFiles = ({
   selectedItems,
   visibleFiles,
+  versionsByPublicPath,
 }: {
   selectedItems: readonly FileVersionSelectionItem[];
   visibleFiles: readonly Pick<FileGroupSummary, 'publicPath'>[];
+  versionsByPublicPath?: Readonly<
+    Record<string, readonly Pick<FileVersion, 'uploadId'>[] | undefined>
+  >;
 }): FileVersionSelectionItem[] => {
   const visiblePublicPaths = new Set(
     visibleFiles.map((file) => file.publicPath)
   );
-  return selectedItems.filter((item) =>
-    visiblePublicPaths.has(item.publicPath)
-  );
+  return selectedItems.filter((item) => {
+    if (!visiblePublicPaths.has(item.publicPath)) {
+      return false;
+    }
+
+    const visibleVersions = versionsByPublicPath?.[item.publicPath];
+    return (
+      visibleVersions === undefined ||
+      visibleVersions.some((version) => version.uploadId === item.uploadId)
+    );
+  });
 };
 
 /**
@@ -1889,6 +1977,20 @@ const PackageList = forwardRef<PackageListRef, PackageListProps>(
       return nextKeys;
     };
 
+    const removeSelectedFileVersionItems = (
+      selectedKeys: ReadonlySet<string>,
+      items: readonly FileVersionSelectionItem[]
+    ): Set<string> => {
+      const itemKeys = new Set(items.map(createFileVersionSelectionKey));
+      const nextKeys = new Set<string>();
+      selectedKeys.forEach((key) => {
+        if (!itemKeys.has(key)) {
+          nextKeys.add(key);
+        }
+      });
+      return nextKeys;
+    };
+
     const handleToggleVersionSelection = (
       file: FileGroupSummary,
       version: FileVersion
@@ -1909,26 +2011,23 @@ const PackageList = forwardRef<PackageListRef, PackageListProps>(
       setArchiveError(null);
     };
 
-    const handleToggleVisibleFileVersions = async (
-      files: readonly FileGroupSummary[],
-      selected: boolean
-    ) => {
-      const publicPaths = new Set(files.map((file) => file.publicPath));
-      if (!selected) {
-        setSelectedVersionKeys((currentKeys) =>
-          removeSelectedVersionsByPublicPath(currentKeys, publicPaths)
-        );
-        setArchiveError(null);
-        return;
-      }
-
+    const collectVisibleFileVersionItems = async (
+      files: readonly FileGroupSummary[]
+    ): Promise<FileVersionSelectionItem[]> => {
       const nextItems: FileVersionSelectionItem[] = [];
       for (const file of files) {
         const versions = await loadFileGroupVersions(file.publicPath);
         if (!versions) {
           continue;
         }
-        versions.forEach((version) => {
+        const visibleVersions = isSearchMode
+          ? filterFileVersionsForSearch({
+              file,
+              versions,
+              searchQuery: debouncedFilterText,
+            })
+          : versions;
+        visibleVersions.forEach((version) => {
           nextItems.push({
             publicPath: file.publicPath,
             uploadId: version.uploadId,
@@ -1936,11 +2035,32 @@ const PackageList = forwardRef<PackageListRef, PackageListProps>(
         });
       }
 
+      return nextItems;
+    };
+
+    const handleToggleVisibleFileVersions = async (
+      files: readonly FileGroupSummary[],
+      selected: boolean
+    ) => {
+      if (!selected && !isSearchMode) {
+        const publicPaths = new Set(files.map((file) => file.publicPath));
+        setSelectedVersionKeys((currentKeys) =>
+          removeSelectedVersionsByPublicPath(currentKeys, publicPaths)
+        );
+        setArchiveError(null);
+        return;
+      }
+
+      const nextItems = await collectVisibleFileVersionItems(files);
       setSelectedVersionKeys((currentKeys) => {
+        if (!selected) {
+          return removeSelectedFileVersionItems(currentKeys, nextItems);
+        }
+
         const nextKeys = new Set(currentKeys);
-        nextItems.forEach((item) => {
-          nextKeys.add(createFileVersionSelectionKey(item));
-        });
+        nextItems.forEach((item) =>
+          nextKeys.add(createFileVersionSelectionKey(item))
+        );
         return nextKeys;
       });
       setArchiveError(null);
@@ -2068,15 +2188,47 @@ const PackageList = forwardRef<PackageListRef, PackageListProps>(
       : directoryOrder.flatMap(
           (directoryPath) => browseFileGroupsByDirectory[directoryPath] ?? []
         );
+    const visibleVersionsByPublicPath = useMemo(() => {
+      if (!isSearchMode) {
+        return versionsByPublicPath;
+      }
+
+      const activeFilesByPublicPath = new Map(
+        activeFiles.map((file) => [file.publicPath, file])
+      );
+      return Object.fromEntries(
+        Object.entries(versionsByPublicPath).map(([publicPath, versions]) => {
+          const file = activeFilesByPublicPath.get(publicPath);
+          if (!file || versions === undefined) {
+            return [publicPath, versions];
+          }
+
+          return [
+            publicPath,
+            filterFileVersionsForSearch({
+              file,
+              versions,
+              searchQuery: debouncedFilterText,
+            }),
+          ];
+        })
+      );
+    }, [activeFiles, debouncedFilterText, isSearchMode, versionsByPublicPath]);
     const downloadableSelectedArchiveItems = useMemo(
       () =>
         isSearchMode
           ? filterSelectedArchiveItemsForVisibleFiles({
               selectedItems: selectedArchiveItems,
               visibleFiles: activeFiles,
+              versionsByPublicPath: visibleVersionsByPublicPath,
             })
           : selectedArchiveItems,
-      [activeFiles, isSearchMode, selectedArchiveItems]
+      [
+        activeFiles,
+        isSearchMode,
+        selectedArchiveItems,
+        visibleVersionsByPublicPath,
+      ]
     );
     const selectedArchiveSizeBytes = useMemo(
       () =>
@@ -2563,7 +2715,7 @@ const PackageList = forwardRef<PackageListRef, PackageListProps>(
             directoryErrorsByPath={directoryErrorsByPath}
             expandedDirectoryPanels={expandedDirectoryPanels}
             expandedPanels={expandedPanels}
-            versionsByPublicPath={versionsByPublicPath}
+            versionsByPublicPath={visibleVersionsByPublicPath}
             versionErrorsByPublicPath={versionErrorsByPublicPath}
             versionLoadingPanels={versionLoadingPanels}
             selectedVersionKeys={selectedVersionKeys}

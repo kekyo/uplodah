@@ -13,6 +13,7 @@ import {
   clearFileGroupPanelState,
   collectLoadedFileVersionSelectionItems,
   createFileVersionSelectionKey,
+  filterFileVersionsForSearch,
   filterSelectedArchiveItemsForVisibleFiles,
   formatArchiveRequestFileName,
   isArchiveDownloadSizeExceeded,
@@ -381,6 +382,10 @@ describe('package list panel state helpers', () => {
         publicPath: 'runs/b.zip',
         uploadId: '20260410_080528_292',
       },
+      {
+        publicPath: 'runs/b.zip',
+        uploadId: '20260410_080529_293',
+      },
     ];
 
     expect(
@@ -391,6 +396,13 @@ describe('package list panel state helpers', () => {
             publicPath: 'runs/b.zip',
           },
         ],
+        versionsByPublicPath: {
+          'runs/b.zip': [
+            {
+              uploadId: '20260410_080528_292',
+            },
+          ],
+        },
       })
     ).toEqual([
       {
@@ -398,6 +410,62 @@ describe('package list panel state helpers', () => {
         uploadId: '20260410_080528_292',
       },
     ]);
+  });
+
+  test('filters visible versions by version-level search matches', () => {
+    const file = {
+      publicPath: 'artifacts/RJK.PolyFit.McrBundle.latest.zip',
+      displayPath: '/artifacts/RJK.PolyFit.McrBundle.latest.zip',
+      directoryPath: '/artifacts',
+      browseDirectoryPath: '/artifacts',
+      browseRelativePath: 'RJK.PolyFit.McrBundle.latest.zip',
+      fileName: 'RJK.PolyFit.McrBundle.latest.zip',
+      latestUploadId: '20260423_013146_810',
+    };
+    const versions = [
+      {
+        uploadId: '20260423_013146_810',
+        uploadedAt: '2026-04-23T01:31:46.000Z',
+        size: 22_800_000,
+        versionDownloadPath:
+          '/api/files/artifacts/RJK.PolyFit.McrBundle.latest.zip/20260423_013146_810',
+        canDelete: false,
+        uploadedBy: 'polyfit-gh-temp',
+        tags: ['polyfit', '#3013', 'artifact'],
+      },
+      {
+        uploadId: '20260422_121112_555',
+        uploadedAt: '2026-04-22T12:11:12.000Z',
+        size: 22_800_000,
+        versionDownloadPath:
+          '/api/files/artifacts/RJK.PolyFit.McrBundle.latest.zip/20260422_121112_555',
+        canDelete: false,
+        uploadedBy: 'polyfit-gh-temp',
+        tags: ['polyfit', '#3012', 'artifact'],
+      },
+    ];
+
+    expect(
+      filterFileVersionsForSearch({
+        file,
+        versions,
+        searchQuery: '#3013',
+      })
+    ).toEqual([versions[0]]);
+    expect(
+      filterFileVersionsForSearch({
+        file,
+        versions,
+        searchQuery: 'artifacts',
+      })
+    ).toEqual(versions);
+    expect(
+      filterFileVersionsForSearch({
+        file,
+        versions,
+        searchQuery: 'McrBundle #3013',
+      })
+    ).toEqual([versions[0]]);
   });
 
   test('calculates selected archive sizes and limit state', () => {
