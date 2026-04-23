@@ -18,7 +18,7 @@ interface FailureEntry {
 /**
  * Configuration for auth failure tracking
  */
-export interface AuthFailureTrackerConfig {
+interface AuthFailureTrackerConfig {
   logger: Logger;
   enabled?: boolean;
   maxDelay?: number;

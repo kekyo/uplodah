@@ -8,7 +8,7 @@ import { AuthMode, StorageDirectoryDescriptor } from '../types';
 /**
  * Authenticated-user summary required for storage access decisions.
  */
-export interface CurrentUserSummary {
+interface CurrentUserSummary {
   username: string;
   role: string;
   authenticated: boolean;

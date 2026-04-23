@@ -6,10 +6,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { mkdir, writeFile } from 'fs/promises';
 import { join, resolve } from 'path';
-import {
-  loadConfigFromFile,
-  loadConfigFromPath,
-} from '../src/utils/configLoader';
+import { loadConfigFromPath } from '../src/utils/configLoader';
 import { createTestDirectory } from './helpers/test-helper';
 
 describe('config-loader', () => {
@@ -20,7 +17,7 @@ describe('config-loader', () => {
   });
 
   it('should return empty object when config.json does not exist', async () => {
-    const config = await loadConfigFromFile(testDir);
+    const config = await loadConfigFromPath(join(testDir, 'config.json'));
     expect(config).toEqual({});
   });
 
@@ -196,9 +193,10 @@ describe('config-loader', () => {
   });
 
   it('should handle invalid JSON5 gracefully', async () => {
-    await writeFile(join(testDir, 'config.json'), '{ invalid json');
+    const configPath = join(testDir, 'config.json');
+    await writeFile(configPath, '{ invalid json');
 
-    const config = await loadConfigFromFile(testDir);
+    const config = await loadConfigFromPath(configPath);
     expect(config).toEqual({});
   });
 
@@ -207,7 +205,7 @@ describe('config-loader', () => {
     await mkdir(subDir, { recursive: true });
     await mkdir(join(subDir, 'config.json'), { recursive: true });
 
-    const config = await loadConfigFromFile(subDir);
+    const config = await loadConfigFromPath(join(subDir, 'config.json'));
     expect(config).toEqual({});
   });
 });

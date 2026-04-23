@@ -19,18 +19,8 @@
   "homepage": "https://github.com/kekyo/uplodah#readme",
   "readme": "README_pack.md",
   "type": "module",
-  "main": "./dist/index.cjs",
-  "module": "./dist/index.mjs",
-  "types": "./dist/src/index.d.ts",
   "bin": {
     "uplodah": "./dist/cli.mjs"
-  },
-  "exports": {
-    ".": {
-      "types": "./dist/src/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.cjs"
-    }
   },
   "files": [
     "dist",
@@ -63,15 +53,13 @@
     "commander": ">=11.0.0",
     "dayjs": ">=1.11.0",
     "fastify": ">=4.28.1",
-    "json5": "^2.2.3",
+    "json5": ">=2.2.0",
     "notistack": ">=3.0.0",
     "passport-http": ">=0.3.0",
     "passport-local": ">=1.0.0",
     "react": ">=18.1.0",
     "react-dom": ">=18.1.0",
-    "react-infinite-scroll-component": "^6.1.0",
     "typed-message": ">=1.20.0",
-    "xml2js": ">=0.6.0",
     "zxcvbn": ">=4.4.0"
   },
   "devDependencies": {
@@ -81,13 +69,11 @@
     "@types/passport-local": ">=1.0.38",
     "@types/react": ">=18.1.0",
     "@types/react-dom": ">=18.1.0",
-    "@types/xml2js": ">=0.4.0",
     "@types/zxcvbn": ">=4.4.0",
     "@vitejs/plugin-react": ">=5.0.0",
-    "prettier-max": ">=1.14.0",
-    "screw-up": ">=1.32.0",
+    "prettier-max": ">=1.16.0",
+    "screw-up": ">=1.33.0",
     "typescript": ">=5.0.0",
-    "unplugin-dts": ">=1.0.0-beta.6",
     "vite": ">=5.0.0",
     "vitest": ">=1.0.0"
   },

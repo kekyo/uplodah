@@ -82,20 +82,6 @@ export const messages = {
     fallback: "Close" 
   } as SimpleMessageItem,
   /**
-   * UPLOAD_PACKAGE ==> "Upload Files"
-   */
-  UPLOAD_PACKAGE: { 
-    key: "UPLOAD_PACKAGE", 
-    fallback: "Upload Files" 
-  } as SimpleMessageItem,
-  /**
-   * SELECT_NUPKG_FILES ==> "Select files to upload:"
-   */
-  SELECT_NUPKG_FILES: { 
-    key: "SELECT_NUPKG_FILES", 
-    fallback: "Select files to upload:" 
-  } as SimpleMessageItem,
-  /**
    * DRAG_DROP_FILES ==> "Drag & drop files here"
    */
   DRAG_DROP_FILES: { 
@@ -165,13 +151,6 @@ export const messages = {
     key: "SELECTED_FILES", 
     fallback: "Selected files ({count:number} file{plural}, {size} MB total):" 
   } as MessageItem<{ count: number; plural: string; size: string }>,
-  /**
-   * INVALID_FILES_EXCLUDED ==> "{count:number} unsupported file(s) were excluded."
-   */
-  INVALID_FILES_EXCLUDED: { 
-    key: "INVALID_FILES_EXCLUDED", 
-    fallback: "{count:number} unsupported file(s) were excluded." 
-  } as MessageItem<{ count: number }>,
   /**
    * UPLOAD_N_FILES ==> "Upload {count:number} file{plural}"
    */
@@ -292,39 +271,11 @@ export const messages = {
     fallback: "Your session has expired. Please log in again." 
   } as SimpleMessageItem,
   /**
-   * ADD_SERVER_AS_SOURCE ==> "API usage examples:"
-   */
-  ADD_SERVER_AS_SOURCE: { 
-    key: "ADD_SERVER_AS_SOURCE", 
-    fallback: "API usage examples:" 
-  } as SimpleMessageItem,
-  /**
-   * ADD_SERVER_AS_SOURCE_AND_PUBLISH ==> "Authenticated API usage examples:"
-   */
-  ADD_SERVER_AS_SOURCE_AND_PUBLISH: { 
-    key: "ADD_SERVER_AS_SOURCE_AND_PUBLISH", 
-    fallback: "Authenticated API usage examples:" 
-  } as SimpleMessageItem,
-  /**
-   * COPY_COMMAND ==> "copy command"
-   */
-  COPY_COMMAND: { 
-    key: "COPY_COMMAND", 
-    fallback: "copy command" 
-  } as SimpleMessageItem,
-  /**
    * USERS ==> "Users"
    */
   USERS: { 
     key: "USERS", 
     fallback: "Users" 
-  } as SimpleMessageItem,
-  /**
-   * USER_MANAGEMENT ==> "User Management"
-   */
-  USER_MANAGEMENT: { 
-    key: "USER_MANAGEMENT", 
-    fallback: "User Management" 
   } as SimpleMessageItem,
   /**
    * ADD_USER ==> "Add User"
@@ -367,13 +318,6 @@ export const messages = {
   PASSWORD_MENU: { 
     key: "PASSWORD_MENU", 
     fallback: "Password" 
-  } as SimpleMessageItem,
-  /**
-   * PASSWORD_MANAGEMENT ==> "Password Management"
-   */
-  PASSWORD_MANAGEMENT: { 
-    key: "PASSWORD_MANAGEMENT", 
-    fallback: "Password Management" 
   } as SimpleMessageItem,
   /**
    * SETTINGS ==> "Settings"
@@ -432,172 +376,11 @@ export const messages = {
     fallback: "Dark" 
   } as SimpleMessageItem,
   /**
-   * NO_PACKAGES_AVAILABLE ==> "No files available"
-   */
-  NO_PACKAGES_AVAILABLE: { 
-    key: "NO_PACKAGES_AVAILABLE", 
-    fallback: "No files available" 
-  } as SimpleMessageItem,
-  /**
-   * NO_PACKAGES_FOUND ==> "No files found in storage."
-   */
-  NO_PACKAGES_FOUND: { 
-    key: "NO_PACKAGES_FOUND", 
-    fallback: "No files found in storage." 
-  } as SimpleMessageItem,
-  /**
-   * PACKAGES_HEADER ==> "Files"
-   */
-  PACKAGES_HEADER: { 
-    key: "PACKAGES_HEADER", 
-    fallback: "Files" 
-  } as SimpleMessageItem,
-  /**
-   * LOADING_PACKAGES ==> "Loading files..."
-   */
-  LOADING_PACKAGES: { 
-    key: "LOADING_PACKAGES", 
-    fallback: "Loading files..." 
-  } as SimpleMessageItem,
-  /**
-   * FAILED_TO_LOAD_PACKAGES ==> "Failed to load files"
-   */
-  FAILED_TO_LOAD_PACKAGES: { 
-    key: "FAILED_TO_LOAD_PACKAGES", 
-    fallback: "Failed to load files" 
-  } as SimpleMessageItem,
-  /**
-   * ERROR_LOADING_PACKAGES ==> "Error loading files: {error}"
-   */
-  ERROR_LOADING_PACKAGES: { 
-    key: "ERROR_LOADING_PACKAGES", 
-    fallback: "Error loading files: {error}" 
-  } as MessageItem<{ error: string }>,
-  /**
-   * SEARCH_PACKAGES ==> "Search files..."
-   */
-  SEARCH_PACKAGES: { 
-    key: "SEARCH_PACKAGES", 
-    fallback: "Search files..." 
-  } as SimpleMessageItem,
-  /**
-   * FILTER_PACKAGES_PLACEHOLDER ==> "Filter files..."
-   */
-  FILTER_PACKAGES_PLACEHOLDER: { 
-    key: "FILTER_PACKAGES_PLACEHOLDER", 
-    fallback: "Filter files..." 
-  } as SimpleMessageItem,
-  /**
-   * NO_PACKAGES_MATCH_FILTER ==> "No files match your filter criteria."
-   */
-  NO_PACKAGES_MATCH_FILTER: { 
-    key: "NO_PACKAGES_MATCH_FILTER", 
-    fallback: "No files match your filter criteria." 
-  } as SimpleMessageItem,
-  /**
-   * CLEAR_SEARCH ==> "Clear search"
-   */
-  CLEAR_SEARCH: { 
-    key: "CLEAR_SEARCH", 
-    fallback: "Clear search" 
-  } as SimpleMessageItem,
-  /**
-   * DOWNLOAD_PACKAGE ==> "Download file"
-   */
-  DOWNLOAD_PACKAGE: { 
-    key: "DOWNLOAD_PACKAGE", 
-    fallback: "Download file" 
-  } as SimpleMessageItem,
-  /**
-   * AUTHORS ==> "Authors: {authors}"
-   */
-  AUTHORS: { 
-    key: "AUTHORS", 
-    fallback: "Authors: {authors}" 
-  } as MessageItem<{ authors: string }>,
-  /**
-   * AUTHORS_LABEL ==> "Authors:"
-   */
-  AUTHORS_LABEL: { 
-    key: "AUTHORS_LABEL", 
-    fallback: "Authors:" 
-  } as SimpleMessageItem,
-  /**
-   * TAGS ==> "Tags"
-   */
-  TAGS: { 
-    key: "TAGS", 
-    fallback: "Tags" 
-  } as SimpleMessageItem,
-  /**
    * TAGS_LABEL ==> "Tags:"
    */
   TAGS_LABEL: { 
     key: "TAGS_LABEL", 
     fallback: "Tags:" 
-  } as SimpleMessageItem,
-  /**
-   * LICENSE ==> "License"
-   */
-  LICENSE: { 
-    key: "LICENSE", 
-    fallback: "License" 
-  } as SimpleMessageItem,
-  /**
-   * PROJECT_URL ==> "Project URL"
-   */
-  PROJECT_URL: { 
-    key: "PROJECT_URL", 
-    fallback: "Project URL" 
-  } as SimpleMessageItem,
-  /**
-   * PROJECT_LINK ==> "Project"
-   */
-  PROJECT_LINK: { 
-    key: "PROJECT_LINK", 
-    fallback: "Project" 
-  } as SimpleMessageItem,
-  /**
-   * LICENSE_LINK ==> "License"
-   */
-  LICENSE_LINK: { 
-    key: "LICENSE_LINK", 
-    fallback: "License" 
-  } as SimpleMessageItem,
-  /**
-   * LINKS_LABEL ==> "Links:"
-   */
-  LINKS_LABEL: { 
-    key: "LINKS_LABEL", 
-    fallback: "Links:" 
-  } as SimpleMessageItem,
-  /**
-   * DESCRIPTION_LABEL ==> "Description:"
-   */
-  DESCRIPTION_LABEL: { 
-    key: "DESCRIPTION_LABEL", 
-    fallback: "Description:" 
-  } as SimpleMessageItem,
-  /**
-   * VERSION ==> "Version {version}"
-   */
-  VERSION: { 
-    key: "VERSION", 
-    fallback: "Version {version}" 
-  } as MessageItem<{ version: string }>,
-  /**
-   * LOADING_MORE ==> "Loading more..."
-   */
-  LOADING_MORE: { 
-    key: "LOADING_MORE", 
-    fallback: "Loading more..." 
-  } as SimpleMessageItem,
-  /**
-   * LOADING_MORE_PACKAGES ==> "Loading more files..."
-   */
-  LOADING_MORE_PACKAGES: { 
-    key: "LOADING_MORE_PACKAGES", 
-    fallback: "Loading more files..." 
   } as SimpleMessageItem,
   /**
    * ERROR_LOADING_FILES ==> "Error loading files: {error}"
@@ -612,13 +395,6 @@ export const messages = {
   NO_FILES_FOUND: { 
     key: "NO_FILES_FOUND", 
     fallback: "No virtual directories found in storage." 
-  } as SimpleMessageItem,
-  /**
-   * FILES_HEADER ==> "Files"
-   */
-  FILES_HEADER: { 
-    key: "FILES_HEADER", 
-    fallback: "Files" 
   } as SimpleMessageItem,
   /**
    * FILE_GROUPS_HEADER ==> "Directories ({count:number})"
@@ -655,20 +431,6 @@ export const messages = {
     key: "LOADING_MORE_FILES", 
     fallback: "Loading more files..." 
   } as SimpleMessageItem,
-  /**
-   * SHOWING_FILES ==> "Showing {current:number} of {total:number} files"
-   */
-  SHOWING_FILES: { 
-    key: "SHOWING_FILES", 
-    fallback: "Showing {current:number} of {total:number} files" 
-  } as MessageItem<{ current: number; total: number }>,
-  /**
-   * ALL_FILES_LOADED ==> "All {count:number} files loaded"
-   */
-  ALL_FILES_LOADED: { 
-    key: "ALL_FILES_LOADED", 
-    fallback: "All {count:number} files loaded" 
-  } as MessageItem<{ count: number }>,
   /**
    * ROOT_DIRECTORY ==> "Root ({path})"
    */
@@ -711,13 +473,6 @@ export const messages = {
     key: "UPLOADED_BY_LABEL", 
     fallback: ", User: {uploadedBy}" 
   } as MessageItem<{ uploadedBy: string }>,
-  /**
-   * DOWNLOAD_FILE ==> "Download file"
-   */
-  DOWNLOAD_FILE: { 
-    key: "DOWNLOAD_FILE", 
-    fallback: "Download file" 
-  } as SimpleMessageItem,
   /**
    * DOWNLOAD_SELECTED_ARCHIVE ==> "Download selected ({count:number})"
    */
@@ -894,34 +649,6 @@ export const messages = {
     fallback: "User created successfully!" 
   } as SimpleMessageItem,
   /**
-   * IMPORTANT_SAVE_API_PASSWORD ==> "Important: Save API password!"
-   */
-  IMPORTANT_SAVE_API_PASSWORD: { 
-    key: "IMPORTANT_SAVE_API_PASSWORD", 
-    fallback: "Important: Save API password!" 
-  } as SimpleMessageItem,
-  /**
-   * API_PASSWORD_SHOWN_ONCE ==> "This API password will only be shown once. Make sure to save it in a secure location."
-   */
-  API_PASSWORD_SHOWN_ONCE: { 
-    key: "API_PASSWORD_SHOWN_ONCE", 
-    fallback: "This API password will only be shown once. Make sure to save it in a secure location." 
-  } as SimpleMessageItem,
-  /**
-   * API_PASSWORD_LABEL ==> "API Password:"
-   */
-  API_PASSWORD_LABEL: { 
-    key: "API_PASSWORD_LABEL", 
-    fallback: "API Password:" 
-  } as SimpleMessageItem,
-  /**
-   * CLICK_TO_COPY_CLIPBOARD ==> "Click to copy to clipboard"
-   */
-  CLICK_TO_COPY_CLIPBOARD: { 
-    key: "CLICK_TO_COPY_CLIPBOARD", 
-    fallback: "Click to copy to clipboard" 
-  } as SimpleMessageItem,
-  /**
    * COPIED_TO_CLIPBOARD ==> "Copied to clipboard!"
    */
   COPIED_TO_CLIPBOARD: { 
@@ -962,62 +689,6 @@ export const messages = {
   ROLE: { 
     key: "ROLE", 
     fallback: "Role" 
-  } as SimpleMessageItem,
-  /**
-   * ROLE_ADMIN ==> "Admin (full access)"
-   */
-  ROLE_ADMIN: { 
-    key: "ROLE_ADMIN", 
-    fallback: "Admin (full access)" 
-  } as SimpleMessageItem,
-  /**
-   * ROLE_PUBLISH ==> "Publisher (read and publish)"
-   */
-  ROLE_PUBLISH: { 
-    key: "ROLE_PUBLISH", 
-    fallback: "Publisher (read and publish)" 
-  } as SimpleMessageItem,
-  /**
-   * ROLE_READONLY ==> "Read-only (read only)"
-   */
-  ROLE_READONLY: { 
-    key: "ROLE_READONLY", 
-    fallback: "Read-only (read only)" 
-  } as SimpleMessageItem,
-  /**
-   * PASSWORD_STRENGTH ==> "Password Strength"
-   */
-  PASSWORD_STRENGTH: { 
-    key: "PASSWORD_STRENGTH", 
-    fallback: "Password Strength" 
-  } as SimpleMessageItem,
-  /**
-   * GENERATE_PASSWORD ==> "Generate Password"
-   */
-  GENERATE_PASSWORD: { 
-    key: "GENERATE_PASSWORD", 
-    fallback: "Generate Password" 
-  } as SimpleMessageItem,
-  /**
-   * GENERATED_PASSWORD ==> "Generated Password"
-   */
-  GENERATED_PASSWORD: { 
-    key: "GENERATED_PASSWORD", 
-    fallback: "Generated Password" 
-  } as SimpleMessageItem,
-  /**
-   * COPY_PASSWORD ==> "Copy Password"
-   */
-  COPY_PASSWORD: { 
-    key: "COPY_PASSWORD", 
-    fallback: "Copy Password" 
-  } as SimpleMessageItem,
-  /**
-   * PASSWORD_COPIED ==> "Password copied to clipboard!"
-   */
-  PASSWORD_COPIED: { 
-    key: "PASSWORD_COPIED", 
-    fallback: "Password copied to clipboard!" 
   } as SimpleMessageItem,
   /**
    * USER_REGISTERED_SUCCESS ==> "User registered successfully!"
@@ -1104,13 +775,6 @@ export const messages = {
     fallback: "Resetting..." 
   } as SimpleMessageItem,
   /**
-   * RESET ==> "Reset"
-   */
-  RESET: { 
-    key: "RESET", 
-    fallback: "Reset" 
-  } as SimpleMessageItem,
-  /**
    * PASSWORD_RESET_SUCCESS ==> "Password reset successfully!"
    */
   PASSWORD_RESET_SUCCESS: { 
@@ -1188,13 +852,6 @@ export const messages = {
     fallback: "Select user to delete" 
   } as SimpleMessageItem,
   /**
-   * CONFIRM_DELETE_USER ==> "Are you sure you want to delete user "{username}"?"
-   */
-  CONFIRM_DELETE_USER: { 
-    key: "CONFIRM_DELETE_USER", 
-    fallback: "Are you sure you want to delete user \"{username}\"?" 
-  } as MessageItem<{ username: string }>,
-  /**
    * DELETING ==> "Deleting..."
    */
   DELETING: { 
@@ -1258,20 +915,6 @@ export const messages = {
     fallback: "Failed to delete user" 
   } as SimpleMessageItem,
   /**
-   * CANNOT_DELETE_SELF ==> "Cannot delete your own account"
-   */
-  CANNOT_DELETE_SELF: { 
-    key: "CANNOT_DELETE_SELF", 
-    fallback: "Cannot delete your own account" 
-  } as SimpleMessageItem,
-  /**
-   * CHANGE_YOUR_PASSWORD ==> "Change Your Password"
-   */
-  CHANGE_YOUR_PASSWORD: { 
-    key: "CHANGE_YOUR_PASSWORD", 
-    fallback: "Change Your Password" 
-  } as SimpleMessageItem,
-  /**
    * CHANGE_PASSWORD_INSTRUCTION ==> "Enter your current password and choose a new password."
    */
   CHANGE_PASSWORD_INSTRUCTION: { 
@@ -1291,20 +934,6 @@ export const messages = {
   CURRENT_PASSWORD: { 
     key: "CURRENT_PASSWORD", 
     fallback: "Current Password" 
-  } as SimpleMessageItem,
-  /**
-   * CHANGING ==> "Changing..."
-   */
-  CHANGING: { 
-    key: "CHANGING", 
-    fallback: "Changing..." 
-  } as SimpleMessageItem,
-  /**
-   * CHANGE ==> "Change"
-   */
-  CHANGE: { 
-    key: "CHANGE", 
-    fallback: "Change" 
   } as SimpleMessageItem,
   /**
    * PASSWORD_CHANGED_SUCCESS ==> "Password changed successfully!"
@@ -1363,13 +992,6 @@ export const messages = {
     fallback: "{current:number} / 10 API passwords" 
   } as MessageItem<{ current: number }>,
   /**
-   * ADD_NEW ==> "Add New"
-   */
-  ADD_NEW: { 
-    key: "ADD_NEW", 
-    fallback: "Add New" 
-  } as SimpleMessageItem,
-  /**
    * NO_API_PASSWORDS ==> "No API passwords configured. Click "Add New" to create one."
    */
   NO_API_PASSWORDS: { 
@@ -1403,13 +1025,6 @@ export const messages = {
   MAX_API_PASSWORDS: { 
     key: "MAX_API_PASSWORDS", 
     fallback: "Maximum of 10 API passwords reached. Delete existing passwords to add new ones." 
-  } as SimpleMessageItem,
-  /**
-   * ADD_NEW_API_PASSWORD_TITLE ==> "Add new API password"
-   */
-  ADD_NEW_API_PASSWORD_TITLE: { 
-    key: "ADD_NEW_API_PASSWORD_TITLE", 
-    fallback: "Add new API password" 
   } as SimpleMessageItem,
   /**
    * API_PASSWORD_LABEL_HELPER ==> "Enter a unique label to identify this API password..."
@@ -1447,55 +1062,6 @@ export const messages = {
     fallback: "Any applications using this password will lose access immediately." 
   } as SimpleMessageItem,
   /**
-   * API_PASSWORD_TITLE ==> "API Password"
-   */
-  API_PASSWORD_TITLE: { 
-    key: "API_PASSWORD_TITLE", 
-    fallback: "API Password" 
-  } as SimpleMessageItem,
-  /**
-   * API_PASSWORD_DESCRIPTION ==> "Use this API password for authenticated API requests:"
-   */
-  API_PASSWORD_DESCRIPTION: { 
-    key: "API_PASSWORD_DESCRIPTION", 
-    fallback: "Use this API password for authenticated API requests:" 
-  } as SimpleMessageItem,
-  /**
-   * DOTNET_PUSH_COMMAND ==> "List files command:"
-   */
-  DOTNET_PUSH_COMMAND: { 
-    key: "DOTNET_PUSH_COMMAND", 
-    fallback: "List files command:" 
-  } as SimpleMessageItem,
-  /**
-   * DOTNET_DELETE_COMMAND ==> "Specific download command:"
-   */
-  DOTNET_DELETE_COMMAND: { 
-    key: "DOTNET_DELETE_COMMAND", 
-    fallback: "Specific download command:" 
-  } as SimpleMessageItem,
-  /**
-   * GENERATING_API_KEY ==> "Generating API key..."
-   */
-  GENERATING_API_KEY: { 
-    key: "GENERATING_API_KEY", 
-    fallback: "Generating API key..." 
-  } as SimpleMessageItem,
-  /**
-   * GENERATE_NEW_KEY ==> "Generate New Key"
-   */
-  GENERATE_NEW_KEY: { 
-    key: "GENERATE_NEW_KEY", 
-    fallback: "Generate New Key" 
-  } as SimpleMessageItem,
-  /**
-   * API_KEY_GENERATED ==> "API key generated successfully!"
-   */
-  API_KEY_GENERATED: { 
-    key: "API_KEY_GENERATED", 
-    fallback: "API key generated successfully!" 
-  } as SimpleMessageItem,
-  /**
    * API_KEY_GENERATION_FAILED ==> "Failed to generate API key"
    */
   API_KEY_GENERATION_FAILED: { 
@@ -1531,88 +1097,11 @@ export const messages = {
     fallback: "Download" 
   } as SimpleMessageItem,
   /**
-   * TIME_TO_CRACK ==> "Time to crack: "
-   */
-  TIME_TO_CRACK: { 
-    key: "TIME_TO_CRACK", 
-    fallback: "Time to crack: " 
-  } as SimpleMessageItem,
-  /**
-   * SUGGESTION_LABEL ==> "Suggestion: "
-   */
-  SUGGESTION_LABEL: { 
-    key: "SUGGESTION_LABEL", 
-    fallback: "Suggestion: " 
-  } as SimpleMessageItem,
-  /**
-   * WEAK ==> "Weak"
-   */
-  WEAK: { 
-    key: "WEAK", 
-    fallback: "Weak" 
-  } as SimpleMessageItem,
-  /**
-   * FAIR ==> "Fair"
-   */
-  FAIR: { 
-    key: "FAIR", 
-    fallback: "Fair" 
-  } as SimpleMessageItem,
-  /**
-   * GOOD ==> "Good"
-   */
-  GOOD: { 
-    key: "GOOD", 
-    fallback: "Good" 
-  } as SimpleMessageItem,
-  /**
-   * STRONG ==> "Strong"
-   */
-  STRONG: { 
-    key: "STRONG", 
-    fallback: "Strong" 
-  } as SimpleMessageItem,
-  /**
-   * VERY_STRONG ==> "Very Strong"
-   */
-  VERY_STRONG: { 
-    key: "VERY_STRONG", 
-    fallback: "Very Strong" 
-  } as SimpleMessageItem,
-  /**
-   * LOADING ==> "Loading..."
-   */
-  LOADING: { 
-    key: "LOADING", 
-    fallback: "Loading..." 
-  } as SimpleMessageItem,
-  /**
    * ERROR ==> "Error"
    */
   ERROR: { 
     key: "ERROR", 
     fallback: "Error" 
-  } as SimpleMessageItem,
-  /**
-   * SUCCESS ==> "Success"
-   */
-  SUCCESS: { 
-    key: "SUCCESS", 
-    fallback: "Success" 
-  } as SimpleMessageItem,
-  /**
-   * WARNING ==> "Warning"
-   */
-  WARNING: { 
-    key: "WARNING", 
-    fallback: "Warning" 
-  } as SimpleMessageItem,
-  /**
-   * INFO ==> "Info"
-   */
-  INFO: { 
-    key: "INFO", 
-    fallback: "Info" 
   } as SimpleMessageItem,
   /**
    * PASSWORD_MUST_BE_DIFFERENT ==> "New password must be different from current password"

@@ -23,7 +23,7 @@ dayjs.extend(utc);
 /**
  * Normalized public file path information.
  */
-export interface NormalizedPublicPath {
+interface NormalizedPublicPath {
   publicPath: string;
   displayPath: string;
   directoryPath: string;

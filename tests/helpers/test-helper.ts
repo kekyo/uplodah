@@ -6,12 +6,8 @@
 import path from 'path';
 import net from 'node:net';
 import dayjs from 'dayjs';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import { LogLevel } from '../../src/types';
 import { ensureDir } from './fs-utils';
-
-const execAsync = promisify(exec);
 
 const blockedFetchPorts = new Set([
   1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79,
@@ -104,73 +100,4 @@ export const getTestPort = async (basePort: number = 6000): Promise<number> => {
   throw new Error(
     `Could not find an available test port in range ${basePort}-${basePort + rangeSize - 1}`
   );
-};
-
-/**
- * Forcefully terminates any remaining CLI processes
- * Used in test cleanup to prevent zombie processes
- */
-export const cleanupCLIProcesses = async (): Promise<void> => {
-  try {
-    // Use shell command with proper error suppression
-    // pkill returns 1 when no processes are found, which is normal
-    await execAsync('pkill -f "dist/cli" 2>/dev/null || true');
-  } catch (error) {
-    // Silently ignore all errors - this is expected when no processes exist
-  }
-};
-
-/**
- * Waits for the test server to be ready by polling the health endpoint.
- * @param serverPort - The port where the server is running
- * @param authMode - Reserved for compatibility with existing helper call sites
- * @param maxRetries - Maximum number of retry attempts (default: 30)
- * @param retryDelay - Delay between retries in milliseconds (default: 500)
- * @returns Promise that resolves when the server is ready
- * @throws Error if the server doesn't become ready within the timeout
- */
-export const waitForServerReady = async (
-  serverPort: number,
-  _authMode: 'none' | 'publish' | 'full',
-  maxRetries: number = 30,
-  retryDelay: number = 500
-): Promise<void> => {
-  const url = `http://localhost:${serverPort}/health`;
-
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      // Set a short timeout to avoid blocking
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2000);
-
-      const response = await fetch(url, {
-        signal: controller.signal,
-        // Avoid following redirects that might hang
-        redirect: 'manual',
-      });
-
-      clearTimeout(timeoutId);
-
-      if (response.status === 200) {
-        return;
-      }
-
-      if (i === maxRetries - 1) {
-        throw new Error(`Server returned unexpected status ${response.status}`);
-      }
-    } catch (error: any) {
-      // Handle fetch errors (connection refused, timeout, etc.)
-      if (i === maxRetries - 1) {
-        // Last attempt failed
-        throw new Error(
-          `Server failed to start within ${(maxRetries * retryDelay) / 1000} seconds: ${error.message}`
-        );
-      }
-
-      // Server not ready yet, continue retrying
-    }
-
-    // Wait before next attempt
-    await new Promise((resolve) => setTimeout(resolve, retryDelay));
-  }
 };

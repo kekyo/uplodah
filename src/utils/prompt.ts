@@ -105,24 +105,3 @@ export const promptPassword = (prompt: string): Promise<string> => {
     process.stdin.on('data', onData);
   });
 };
-
-/**
- * Prompts for yes/no confirmation
- */
-export const promptConfirm = (
-  rl: readline.Interface,
-  prompt: string,
-  defaultValue: boolean = false
-): Promise<boolean> => {
-  return new Promise((resolve) => {
-    const defaultStr = defaultValue ? 'Y/n' : 'y/N';
-    rl.question(`${prompt} [${defaultStr}]: `, (answer) => {
-      const normalized = answer.trim().toLowerCase();
-      if (normalized === '') {
-        resolve(defaultValue);
-      } else {
-        resolve(normalized === 'y' || normalized === 'yes');
-      }
-    });
-  });
-};

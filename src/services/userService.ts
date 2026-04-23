@@ -92,7 +92,7 @@ export interface ApiPasswordDeleteResponse {
 /**
  * User service configuration
  */
-export interface UserServiceConfig {
+interface UserServiceConfig {
   configDir: string;
   usersFile?: string; // Optional custom path to users.json file
   logger: Logger;

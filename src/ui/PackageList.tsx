@@ -143,7 +143,7 @@ interface DirectorySection {
 /**
  * Selected file version used for archive downloads.
  */
-export interface FileVersionSelectionItem {
+interface FileVersionSelectionItem {
   /** Public file path relative to the storage root. */
   publicPath: string;
   /** Upload identifier of the selected version. */
