@@ -50,13 +50,14 @@ It also provides a modern browser-based UI:
 - **Quick setup, start an upload server in seconds**
 - No database required: uploaded files and metadata are managed directly on the filesystem
 - Simple upload API: just send `application/octet-stream` with `POST` or `PUT`
-- Revisioned storage: re-uploading the same file name keeps history
-- Flexible downloads: retrieve either the latest revision or a specific upload ID directly
+- Versioned storage: re-uploading the same file name keeps history
+- Flexible downloads: retrieve either the latest version or a specific upload ID directly
 - Modern Web UI:
-  - File list, search, and expandable revision view
+  - File list, search, and expandable version view
   - Sectioned display by virtual directory
   - Multiple file upload
   - Copyable API command examples
+  - Download selected files in bulk
 - Virtual storage rules:
   - Per-directory store/delete control
   - Per-directory expiration rules
@@ -129,7 +130,8 @@ uplodah --base-url https://files.example.com/uplodah
 uplodah --port 3000 \
   --storage-dir ./storage \
   --config-file ./config.json \
-  --max-upload-size-mb 500
+  --max-upload-size-mb 500 \
+  --max-download-size-mb 500
 ```
 
 By default, the following URLs are available:
@@ -211,7 +213,7 @@ Notes:
 
 To download a file from the UI, open the entry from the file list and click the "Download" button for the desired version.
 As described earlier, `uplodah` can store multiple versions of the same file.
-Those revisions are distinguished by upload timestamp, and the list is shown from newest to oldest:
+Those versions are distinguished by upload timestamp, and the list is shown from newest to oldest:
 
 ![Download](./images/download.png)
 
@@ -241,7 +243,7 @@ curl "http://localhost:5968/api/files?skip=0&take=20"
 ```
 
 The listing API returns groups sorted by most recent upload first.
-Each group contains all revisions for that file name.
+Each group contains all versions for that file name.
 
 ---
 
@@ -414,6 +416,7 @@ If not specified, `uplodah` looks for `./config.json` in the current directory.
   "passwordMinScore": 2,
   "passwordStrengthCheck": true,
   "maxUploadSizeMb": 500,
+  "maxDownloadSizeMb": 500,
   "storage": {
     "/": {
       "accept": ["store"]
@@ -714,6 +717,7 @@ Below is an example of `config.json`:
   "realm": "Awesome uplodah",
   "logLevel": "info",
   "maxUploadSizeMb": 500,
+  "maxDownloadSizeMb": 500,
   "storage": {
     "/": {
       "accept": ["store"]
@@ -859,25 +863,26 @@ Without QEMU, you can only build for your native architecture.
 
 All settings are resolved with the priority **CLI > environment variable > config.json > default**.
 
-| CLI option                    | Environment variable                 | `config.json` key       | Description                                              | Valid values                               | Default             |
-| :---------------------------- | :----------------------------------- | :---------------------- | :------------------------------------------------------- | :----------------------------------------- | :------------------ |
-| `-p, --port <port>`           | `UPLODAH_PORT`                       | `port`                  | HTTP server listening port                               | 1-65535                                    | `5968`              |
-| `-b, --base-url <url>`        | `UPLODAH_BASE_URL`                   | `baseUrl`               | Fixed external base URL                                  | valid URL                                  | auto-detected       |
-| `-d, --storage-dir <dir>`     | `UPLODAH_STORAGE_DIR`                | `storageDir`            | Storage root directory                                   | valid path                                 | `./storage`         |
-| `-c, --config-file <path>`    | `UPLODAH_CONFIG_FILE`                | N/A                     | Path to the configuration file                           | valid path                                 | `./config.json`     |
-| `-u, --users-file <path>`     | `UPLODAH_USERS_FILE`                 | `usersFile`             | Path to the users database file                          | valid path                                 | `./users.json`      |
-| `-r, --realm <realm>`         | `UPLODAH_REALM`                      | `realm`                 | UI title and server label                                | string                                     | `uplodah [version]` |
-| `-l, --log-level <level>`     | `UPLODAH_LOG_LEVEL`                  | `logLevel`              | Log verbosity                                            | `debug`, `info`, `warn`, `error`, `ignore` | `info`              |
-| `--trusted-proxies <ips>`     | `UPLODAH_TRUSTED_PROXIES`            | `trustedProxies`        | Comma-separated trusted proxy IP list                    | list of IP addresses                       | none                |
-| `--auth-mode <mode>`          | `UPLODAH_AUTH_MODE`                  | `authMode`              | Authentication mode                                      | `none`, `publish`, `full`                  | `none`              |
-| N/A                           | `UPLODAH_SESSION_SECRET`             | `sessionSecret`         | Secret used for session cookies                          | string                                     | auto-generated      |
-| N/A                           | `UPLODAH_PASSWORD_MIN_SCORE`         | `passwordMinScore`      | Minimum password strength score                          | 0-4                                        | `2`                 |
-| N/A                           | `UPLODAH_PASSWORD_STRENGTH_CHECK`    | `passwordStrengthCheck` | Enable password strength checking                        | `true`, `false`                            | `true`              |
-| `--max-upload-size-mb <size>` | `UPLODAH_MAX_UPLOAD_SIZE_MB`         | `maxUploadSizeMb`       | Maximum upload size in MB                                | 1-10000                                    | `100`               |
-| N/A                           | N/A                                  | `storage`               | Per-virtual-directory storage policy                     | object                                     | unset               |
-| N/A                           | `UPLODAH_AUTH_FAILURE_DELAY_ENABLED` | N/A                     | Enable progressive delays for failed auth attempts       | `true`, `false`                            | `true`              |
-| N/A                           | `UPLODAH_AUTH_FAILURE_MAX_DELAY`     | N/A                     | Maximum delay for failed auth attempts (ms)              | number                                     | `10000`             |
-| `--auth-init`                 | N/A                                  | N/A                     | Initialize authentication with an interactive admin user | flag                                       | N/A                 |
+| CLI option                      | Environment variable                 | `config.json` key       | Description                                              | Valid values                               | Default             |
+| :------------------------------ | :----------------------------------- | :---------------------- | :------------------------------------------------------- | :----------------------------------------- | :------------------ |
+| `-p, --port <port>`             | `UPLODAH_PORT`                       | `port`                  | HTTP server listening port                               | 1-65535                                    | `5968`              |
+| `-b, --base-url <url>`          | `UPLODAH_BASE_URL`                   | `baseUrl`               | Fixed external base URL                                  | valid URL                                  | auto-detected       |
+| `-d, --storage-dir <dir>`       | `UPLODAH_STORAGE_DIR`                | `storageDir`            | Storage root directory                                   | valid path                                 | `./storage`         |
+| `-c, --config-file <path>`      | `UPLODAH_CONFIG_FILE`                | N/A                     | Path to the configuration file                           | valid path                                 | `./config.json`     |
+| `-u, --users-file <path>`       | `UPLODAH_USERS_FILE`                 | `usersFile`             | Path to the users database file                          | valid path                                 | `./users.json`      |
+| `-r, --realm <realm>`           | `UPLODAH_REALM`                      | `realm`                 | UI title and server label                                | string                                     | `uplodah [version]` |
+| `-l, --log-level <level>`       | `UPLODAH_LOG_LEVEL`                  | `logLevel`              | Log verbosity                                            | `debug`, `info`, `warn`, `error`, `ignore` | `info`              |
+| `--trusted-proxies <ips>`       | `UPLODAH_TRUSTED_PROXIES`            | `trustedProxies`        | Comma-separated trusted proxy IP list                    | list of IP addresses                       | none                |
+| `--auth-mode <mode>`            | `UPLODAH_AUTH_MODE`                  | `authMode`              | Authentication mode                                      | `none`, `publish`, `full`                  | `none`              |
+| N/A                             | `UPLODAH_SESSION_SECRET`             | `sessionSecret`         | Secret used for session cookies                          | string                                     | auto-generated      |
+| N/A                             | `UPLODAH_PASSWORD_MIN_SCORE`         | `passwordMinScore`      | Minimum password strength score                          | 0-4                                        | `2`                 |
+| N/A                             | `UPLODAH_PASSWORD_STRENGTH_CHECK`    | `passwordStrengthCheck` | Enable password strength checking                        | `true`, `false`                            | `true`              |
+| `--max-upload-size-mb <size>`   | `UPLODAH_MAX_UPLOAD_SIZE_MB`         | `maxUploadSizeMb`       | Maximum upload size in MB                                | 1-10000                                    | `100`               |
+| `--max-download-size-mb <size>` | `UPLODAH_MAX_DOWNLOAD_SIZE_MB`       | `maxDownloadSizeMb`     | Maximum selected batch download size in MB               | 1-10000                                    | `100`               |
+| N/A                             | N/A                                  | `storage`               | Per-virtual-directory storage policy                     | object                                     | unset               |
+| N/A                             | `UPLODAH_AUTH_FAILURE_DELAY_ENABLED` | N/A                     | Enable progressive delays for failed auth attempts       | `true`, `false`                            | `true`              |
+| N/A                             | `UPLODAH_AUTH_FAILURE_MAX_DELAY`     | N/A                     | Maximum delay for failed auth attempts (ms)              | number                                     | `10000`             |
+| `--auth-init`                   | N/A                                  | N/A                     | Initialize authentication with an interactive admin user | flag                                       | N/A                 |
 
 ## Other
 

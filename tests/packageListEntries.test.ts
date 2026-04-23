@@ -122,7 +122,11 @@ const renderEntries = ({
         versionsByPublicPath,
         versionErrorsByPublicPath: {},
         versionLoadingPanels: new Set(),
+        selectedVersionKeys: new Set(),
         canDeleteFileGroupVersion: canDeleteFileGroupVersion ?? (() => false),
+        onToggleVersionSelection: vi.fn(),
+        onToggleFileGroupVersions: vi.fn(),
+        onToggleDirectoryVersions: vi.fn(),
         onDeleteVersionRequest: vi.fn(),
         onDirectoryAccordionChange: vi.fn(),
         onAccordionChange: vi.fn(),
@@ -307,7 +311,7 @@ describe('package list entries', () => {
     expect(html).toContain('gap:20px');
   });
 
-  test('renders expanded group summary and revisions', () => {
+  test('renders expanded group summary and versions', () => {
     const html = renderEntries({
       expandedDirectoryPanels: new Set(['/']),
       expandedPanels: new Set(['dockit-0.5.0.zip']),
@@ -318,7 +322,7 @@ describe('package list entries', () => {
     expect(html).toContain('Group Summary');
     expect(html).toContain('2 uploads');
     expect(html).toContain('Total size: 82.2 KB');
-    expect(html).toContain('Revisions (2)');
+    expect(html).toContain('Versions (2)');
     expect(html).toContain('(2026/04/07 14:51:57 UTC)');
     expect(html).toContain('Upload ID: 20260407_145157_213 Size: 41.1 KB');
     expect(html).toContain('Upload: dockit-bot');
@@ -332,7 +336,7 @@ describe('package list entries', () => {
     expect(html.match(/aria-label="Actions"/g)?.length).toBe(1);
   });
 
-  test('hides revision action buttons when delete permission is unavailable', () => {
+  test('hides version action buttons when delete permission is unavailable', () => {
     const html = renderEntries({
       expandedDirectoryPanels: new Set(['/']),
       expandedPanels: new Set(['dockit-0.5.0.zip']),

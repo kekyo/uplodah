@@ -98,6 +98,7 @@ export interface ServerConfig {
   passwordMinScore?: number; // 0-4, default: 2 (Good)
   passwordStrengthCheck?: boolean; // default: true
   maxUploadSizeMb?: number; // Maximum upload size in MB, default: 100
+  maxDownloadSizeMb?: number; // Maximum batch download size in MB, default: 100
 }
 
 /**

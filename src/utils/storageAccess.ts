@@ -48,11 +48,11 @@ export const filterUploadDirectoryDetailsByUserAccess = ({
   hasUploadCapability(authMode, currentUser) ? [...directories] : [];
 
 /**
- * Decide whether the current user may delete a stored revision.
+ * Decide whether the current user may delete a stored version.
  * @param authMode Server authentication mode.
  * @param currentUser Current authenticated user, if any.
- * @param uploadedBy Uploader recorded in revision metadata.
- * @returns True when the revision may be deleted.
+ * @param uploadedBy Uploader recorded in version metadata.
+ * @returns True when the version may be deleted.
  */
 export const canDeleteStoredVersion = ({
   authMode,

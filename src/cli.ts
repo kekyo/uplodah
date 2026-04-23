@@ -93,6 +93,17 @@ const getMaxUploadSizeMbFromEnv = (): number | undefined => {
   return undefined;
 };
 
+const getMaxDownloadSizeMbFromEnv = (): number | undefined => {
+  const value = process.env.UPLODAH_MAX_DOWNLOAD_SIZE_MB;
+  if (value) {
+    const size = parseInt(value, 10);
+    if (!isNaN(size) && size >= 1 && size <= 10000) {
+      return size;
+    }
+  }
+  return undefined;
+};
+
 /////////////////////////////////////////////////////////////////////////
 
 const program = new Command();
@@ -139,6 +150,12 @@ program
     new Option(
       '--max-upload-size-mb <size>',
       'maximum upload size in MB (1-10000)'
+    )
+  )
+  .addOption(
+    new Option(
+      '--max-download-size-mb <size>',
+      'maximum batch download size in MB (1-10000)'
     )
   )
   .addOption(
@@ -199,6 +216,10 @@ program
       options.maxUploadSizeMb !== undefined
         ? parseInt(options.maxUploadSizeMb, 10)
         : getMaxUploadSizeMbFromEnv() || configFile.maxUploadSizeMb || 100;
+    const maxDownloadSizeMb =
+      options.maxDownloadSizeMb !== undefined
+        ? parseInt(options.maxDownloadSizeMb, 10)
+        : getMaxDownloadSizeMbFromEnv() || configFile.maxDownloadSizeMb || 100;
 
     // Validate log level
     const validLogLevels: LogLevel[] = [
@@ -243,6 +264,18 @@ program
       process.exit(1);
     }
 
+    // Validate maxDownloadSizeMb
+    if (
+      isNaN(maxDownloadSizeMb) ||
+      maxDownloadSizeMb < 1 ||
+      maxDownloadSizeMb > 10000
+    ) {
+      console.error(
+        'Invalid max download size. Must be between 1 and 10000 MB'
+      );
+      process.exit(1);
+    }
+
     // Display banner
     logger.info(`${packageName} [${version}-${git_commit_hash}] Starting...`);
 
@@ -264,6 +297,7 @@ program
     logger.info(`Authentication mode: ${authMode}`);
     logger.info(`Log level: ${logLevel}`);
     logger.info(`Max upload size: ${maxUploadSizeMb}MB`);
+    logger.info(`Max download size: ${maxDownloadSizeMb}MB`);
     if (trustedProxies && trustedProxies.length > 0) {
       logger.info(`Trusted proxies: ${trustedProxies.join(', ')}`);
     }
@@ -285,6 +319,7 @@ program
       passwordMinScore,
       passwordStrengthCheck,
       maxUploadSizeMb,
+      maxDownloadSizeMb,
       storage: configFile.storage,
     };
 

@@ -53,6 +53,7 @@ export interface ServerConfig {
     port: number;
     isHttps: boolean;
   };
+  maxDownloadSizeMb: number;
   authMode: 'none' | 'publish' | 'full';
   authEnabled: {
     general: boolean;

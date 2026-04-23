@@ -5,6 +5,9 @@
 
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { ReaderWriterLock } from 'async-primitives';
+import { randomUUID } from 'crypto';
+import dayjs, { type Dayjs } from 'dayjs';
+import utc from 'dayjs/plugin/utc';
 import { Logger } from '../../../types';
 import { AuthService } from '../../../services/authService';
 import {
@@ -19,7 +22,10 @@ import {
 } from '../../../services/storageService';
 import { createUrlResolver } from '../../../utils/urlResolver';
 import { streamFile } from '../../../utils/fileStreaming';
+import { sendZipArchive, ZipArchiveEntry } from '../../../utils/zipArchive';
 import { canDeleteStoredVersion } from '../../../utils/storageAccess';
+
+dayjs.extend(utc);
 
 /**
  * Files routes configuration.
@@ -30,6 +36,42 @@ export interface FilesRoutesConfig {
   authConfig: FastifyAuthConfig;
   logger: Logger;
   urlResolver: ReturnType<typeof createUrlResolver>;
+  realm: string;
+  maxDownloadSizeMb: number;
+}
+
+/**
+ * File version selected for an archive download.
+ */
+export interface FileArchiveSelectionItem {
+  /** Public file path relative to the storage root. */
+  publicPath: string;
+  /** Upload identifier of the selected version. */
+  uploadId: string;
+}
+
+/**
+ * POST /api/files/archive-requests request body.
+ */
+export interface CreateFileArchiveRequestBody {
+  /** Selected file versions to include in the archive. */
+  items: FileArchiveSelectionItem[];
+  /** Browser-generated archive file name without the .zip extension. */
+  archiveFileName?: string;
+}
+
+/**
+ * POST /api/files/archive-requests response body.
+ */
+export interface CreateFileArchiveResponse {
+  /** Relative download path for the prepared archive request. */
+  downloadPath: string;
+}
+
+interface PendingFileArchiveRequest {
+  items: FileArchiveSelectionItem[];
+  archiveFileName: string;
+  expiresAt: number;
 }
 
 const decodeWildcardPath = (rawPath: string): string => {
@@ -52,6 +94,147 @@ const withAbsoluteUrls = (
   })),
 });
 
+const archiveRequestTtlMs = 5 * 60 * 1000;
+
+const reservedWindowsFileNames = new Set([
+  'CON',
+  'PRN',
+  'AUX',
+  'NUL',
+  'COM1',
+  'COM2',
+  'COM3',
+  'COM4',
+  'COM5',
+  'COM6',
+  'COM7',
+  'COM8',
+  'COM9',
+  'LPT1',
+  'LPT2',
+  'LPT3',
+  'LPT4',
+  'LPT5',
+  'LPT6',
+  'LPT7',
+  'LPT8',
+  'LPT9',
+]);
+
+const sanitizePortableFileNameComponent = (
+  value: string,
+  fallbackValue: string
+): string => {
+  const sanitizedValue = value
+    .normalize('NFKC')
+    .replace(/[^\p{L}\p{N}._-]+/gu, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[.-]+|[.-]+$/g, '');
+
+  const fileName =
+    sanitizedValue.length > 0 ? sanitizedValue.slice(0, 120) : fallbackValue;
+  const reservedNameTarget = fileName.split('.')[0]?.toUpperCase();
+  return reservedNameTarget && reservedWindowsFileNames.has(reservedNameTarget)
+    ? `_${fileName}`
+    : fileName;
+};
+
+/**
+ * Convert a realm value into a portable archive file name prefix.
+ * @param realm Realm name from the server configuration.
+ * @returns Sanitized file name prefix.
+ */
+export const sanitizeArchiveRealmFileName = (realm: string): string =>
+  sanitizePortableFileNameComponent(realm, 'uplodah');
+
+/**
+ * Convert a browser-provided archive file name into a portable file name part.
+ * @param archiveFileName File name requested by the browser, without extension.
+ * @returns Sanitized file name part.
+ */
+export const sanitizeArchiveRequestFileName = (
+  archiveFileName: string
+): string => sanitizePortableFileNameComponent(archiveFileName, 'archive');
+
+/**
+ * Format a timestamp for archive file names.
+ * @param date Date-time value to format.
+ * @returns Timestamp in YYYYMMDD_HHmmss form using the date's current zone.
+ */
+export const formatArchiveTimestamp = (date: Dayjs): string =>
+  date.format('YYYYMMDD_HHmmss');
+
+const normalizeArchiveRequestFileName = (rawFileName: unknown): string =>
+  typeof rawFileName === 'string' && rawFileName.trim().length > 0
+    ? sanitizeArchiveRequestFileName(rawFileName)
+    : formatArchiveTimestamp(dayjs.utc());
+
+const createArchiveFileName = (
+  realm: string,
+  archiveFileName: string
+): string =>
+  `${sanitizeArchiveRealmFileName(realm)}_${sanitizeArchiveRequestFileName(
+    archiveFileName
+  )}.zip`;
+
+const normalizeArchiveItems = (
+  rawItems: unknown
+): FileArchiveSelectionItem[] | undefined => {
+  if (!Array.isArray(rawItems)) {
+    return undefined;
+  }
+
+  const uniqueItems = new Map<string, FileArchiveSelectionItem>();
+  for (const item of rawItems) {
+    if (!item || typeof item !== 'object') {
+      return undefined;
+    }
+
+    const candidate = item as {
+      publicPath?: unknown;
+      uploadId?: unknown;
+    };
+    if (
+      typeof candidate.publicPath !== 'string' ||
+      candidate.publicPath.trim().length === 0 ||
+      typeof candidate.uploadId !== 'string' ||
+      candidate.uploadId.trim().length === 0
+    ) {
+      return undefined;
+    }
+
+    const normalizedItem = {
+      publicPath: candidate.publicPath,
+      uploadId: candidate.uploadId,
+    };
+    uniqueItems.set(
+      `${normalizedItem.publicPath}\n${normalizedItem.uploadId}`,
+      normalizedItem
+    );
+  }
+
+  return Array.from(uniqueItems.values());
+};
+
+const cleanupExpiredArchiveRequests = (
+  archiveRequests: Map<string, PendingFileArchiveRequest>,
+  now: number
+): void => {
+  archiveRequests.forEach((request, requestId) => {
+    if (request.expiresAt <= now) {
+      archiveRequests.delete(requestId);
+    }
+  });
+};
+
+const createArchiveEntryPath = (item: FileArchiveSelectionItem): string => {
+  const pathSegments = item.publicPath
+    .split('/')
+    .filter((segment) => segment.length > 0);
+  const fileName = pathSegments[pathSegments.length - 1] ?? 'file';
+  return [...pathSegments, item.uploadId, fileName].join('/');
+};
+
 /**
  * Register file list and download API routes.
  * @param fastify Fastify instance.
@@ -63,8 +246,16 @@ export const registerFilesRoutes = async (
   config: FilesRoutesConfig,
   locker: ReaderWriterLock
 ) => {
-  const { storageService, authService, authConfig, logger, urlResolver } =
-    config;
+  const {
+    storageService,
+    authService,
+    authConfig,
+    logger,
+    urlResolver,
+    realm,
+    maxDownloadSizeMb,
+  } = config;
+  const maxDownloadSizeBytes = maxDownloadSizeMb * 1024 * 1024;
 
   const authHandler = authService.isAuthRequired('general')
     ? createConditionalHybridAuthMiddleware(authConfig)
@@ -76,6 +267,7 @@ export const registerFilesRoutes = async (
   const deleteAuthPreHandler = deleteAuthHandler
     ? ([deleteAuthHandler] as any)
     : [];
+  const archiveRequests = new Map<string, PendingFileArchiveRequest>();
 
   fastify.get(
     '/',
@@ -99,6 +291,140 @@ export const registerFilesRoutes = async (
         take,
         items: files.items.map((group) => withAbsoluteUrls(baseUrl, group)),
       });
+    }
+  );
+
+  fastify.post(
+    '/archive-requests',
+    {
+      preHandler: authPreHandler,
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const body = request.body as Partial<CreateFileArchiveRequestBody>;
+      const items = normalizeArchiveItems(body?.items);
+      const archiveFileName = normalizeArchiveRequestFileName(
+        body?.archiveFileName
+      );
+      if (!items) {
+        return reply
+          .status(400)
+          .send({ error: 'Archive request items are invalid' });
+      }
+      if (items.length === 0) {
+        return reply.status(400).send({ error: 'No files selected' });
+      }
+
+      const resolvedItems: FileArchiveSelectionItem[] = [];
+      let resolvedSizeBytes = 0;
+      try {
+        for (const item of items) {
+          const version = await storageService.getFileVersion(
+            item.publicPath,
+            item.uploadId
+          );
+          if (!version) {
+            return reply.status(404).send({ error: 'File version not found' });
+          }
+          resolvedSizeBytes += version.size;
+          if (resolvedSizeBytes > maxDownloadSizeBytes) {
+            return reply
+              .status(413)
+              .send({ error: 'Selected files exceed maximum download size' });
+          }
+          resolvedItems.push({
+            publicPath: version.publicPath,
+            uploadId: version.uploadId,
+          });
+        }
+      } catch (error) {
+        logger.error(`Failed to prepare archive request: ${error}`);
+        return reply.status(500).send({ error: 'Internal server error' });
+      }
+
+      const now = dayjs().valueOf();
+      cleanupExpiredArchiveRequests(archiveRequests, now);
+
+      const requestId = randomUUID();
+      archiveRequests.set(requestId, {
+        items: resolvedItems,
+        archiveFileName,
+        expiresAt: now + archiveRequestTtlMs,
+      });
+
+      const response: CreateFileArchiveResponse = {
+        downloadPath: `/api/files/archive-requests/${encodeURIComponent(
+          requestId
+        )}`,
+      };
+      return reply.send(response);
+    }
+  );
+
+  fastify.get(
+    '/archive-requests/:requestId',
+    {
+      preHandler: authPreHandler,
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const requestId = (request.params as { requestId?: string }).requestId;
+      if (!requestId) {
+        return reply.status(404).send({ error: 'Archive request not found' });
+      }
+
+      const now = dayjs().valueOf();
+      cleanupExpiredArchiveRequests(archiveRequests, now);
+
+      const archiveRequest = archiveRequests.get(requestId);
+      if (!archiveRequest) {
+        return reply.status(404).send({ error: 'Archive request not found' });
+      }
+      archiveRequests.delete(requestId);
+
+      try {
+        const entries: ZipArchiveEntry[] = [];
+        let resolvedSizeBytes = 0;
+        for (const item of archiveRequest.items) {
+          const version = await storageService.getFileVersion(
+            item.publicPath,
+            item.uploadId
+          );
+          if (!version) {
+            return reply.status(404).send({ error: 'File version not found' });
+          }
+
+          resolvedSizeBytes += version.size;
+          if (resolvedSizeBytes > maxDownloadSizeBytes) {
+            return reply
+              .status(413)
+              .send({ error: 'Selected files exceed maximum download size' });
+          }
+
+          entries.push({
+            absoluteFilePath: version.absoluteFilePath,
+            archivePath: createArchiveEntryPath({
+              publicPath: version.publicPath,
+              uploadId: version.uploadId,
+            }),
+            uploadedAt: version.uploadedAt,
+          });
+        }
+
+        await sendZipArchive(
+          logger,
+          locker,
+          entries,
+          reply,
+          {
+            contentDisposition: `attachment; filename*=UTF-8''${encodeURIComponent(
+              createArchiveFileName(realm, archiveRequest.archiveFileName)
+            )}`,
+          },
+          request.abortSignal
+        );
+      } catch (error) {
+        logger.error(`Failed to serve archive ${requestId}: ${error}`);
+        return reply.status(500).send({ error: 'Internal server error' });
+      }
     }
   );
 

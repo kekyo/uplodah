@@ -44,13 +44,14 @@ It also provides a modern browser-based UI:
 - **Quick setup, start an upload server in seconds**
 - No database required: uploaded files and metadata are managed directly on the filesystem
 - Simple upload API: just send `application/octet-stream` with `POST` or `PUT`
-- Revisioned storage: re-uploading the same file name keeps history
-- Flexible downloads: retrieve either the latest revision or a specific upload ID directly
+- Versioned storage: re-uploading the same file name keeps history
+- Flexible downloads: retrieve either the latest version or a specific upload ID directly
 - Modern Web UI:
-  - File list, search, and expandable revision view
+  - File list, search, and expandable version view
   - Sectioned display by virtual directory
   - Multiple file upload
   - Copyable API command examples
+  - Download selected files in bulk
 - Virtual storage rules:
   - Per-directory read-only control
   - Per-directory expiration rules
@@ -123,7 +124,8 @@ uplodah --base-url https://files.example.com/uplodah
 uplodah --port 3000 \
   --storage-dir ./storage \
   --config-file ./config.json \
-  --max-upload-size-mb 500
+  --max-upload-size-mb 500 \
+  --max-download-size-mb 500
 ```
 
 By default, the following URLs are available:

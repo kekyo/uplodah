@@ -35,15 +35,15 @@ export interface NormalizedPublicPath {
 }
 
 /**
- * Optional upload metadata stored alongside a file revision.
+ * Optional upload metadata stored alongside a file version.
  */
 export interface StoredUploadMetadata {
   /**
-   * Name of the uploader recorded for the revision.
+   * Name of the uploader recorded for the version.
    */
   uploadedBy?: string;
   /**
-   * Additional tags recorded for the revision.
+   * Additional tags recorded for the version.
    */
   tags?: string[];
 }

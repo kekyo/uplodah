@@ -40,6 +40,7 @@ export interface UiRoutesConfig {
   storageService: StorageService;
   logger: Logger;
   realm: string;
+  maxDownloadSizeMb: number;
   serverUrl: {
     baseUrl?: string;
     port: number;
@@ -67,6 +68,7 @@ export interface ConfigResponse {
     port: number;
     isHttps: boolean;
   };
+  maxDownloadSizeMb: number;
   authMode: string;
   authEnabled: {
     general: boolean;
@@ -252,6 +254,7 @@ export const registerUiRoutes = async (
     storageService,
     logger,
     realm,
+    maxDownloadSizeMb,
     serverUrl,
   } = config;
 
@@ -338,6 +341,7 @@ export const registerUiRoutes = async (
           version: version,
           git_commit_hash: git_commit_hash,
           serverUrl: serverUrl,
+          maxDownloadSizeMb,
           authMode: authMode,
           authEnabled: {
             general: authService.isAuthRequired('general'),

@@ -21,7 +21,7 @@ const devConfig: ServerConfig = {
   storageDir: './dev/storage',
   realm: 'uplodah dev',
   trustedProxies: [],
-  authMode: 'publish',
+  authMode: 'none',
   storage: {
     '/': {
       description: 'Test root storage',
