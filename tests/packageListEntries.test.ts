@@ -355,17 +355,14 @@ describe('package list entries', () => {
     });
 
     expect(html).toContain('aria-expanded="true"');
-    expect(html).toContain('Group Summary');
-    expect(html).toContain('2 uploads');
-    expect(html).toContain('Total size: 82.2 KB');
     expect(html).toContain('Versions (2)');
     expect(html).toContain('(2026/04/07 14:51:57 UTC)');
-    expect(html).toContain('Upload ID: 20260407_145157_213 Size: 41.1 KB');
-    expect(html).toContain('Upload: dockit-bot');
+    expect(html).toContain('Upload ID: 20260407_145157_213, Size: 41.1 KB');
+    expect(html).toContain(', User: dockit-bot');
     expect(html).toContain('Tags:');
     expect(html).toContain('nightly');
     expect(html).toContain('zip');
-    expect(html.match(/Upload:/g)?.length).toBe(1);
+    expect(html.match(/User:/g)?.length).toBe(1);
     expect(html.match(/Tags:/g)?.length).toBe(1);
     expect(html).toContain('Download');
     expect(html).toContain('...');

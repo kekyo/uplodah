@@ -1155,11 +1155,6 @@ export const PackageListEntries = ({
                       const isVersionLoading = versionLoadingPanels.has(
                         file.publicPath
                       );
-                      const totalSize =
-                        versions?.reduce(
-                          (size, version) => size + version.size,
-                          0
-                        ) ?? 0;
                       const fileGroupSelection =
                         summarizeFileVersionSelectionScope({
                           files: [file],
@@ -1303,44 +1298,6 @@ export const PackageListEntries = ({
                                 <Typography
                                   variant="subtitle2"
                                   component="h3"
-                                  sx={{ mb: 1, fontWeight: 700 }}
-                                >
-                                  <TypedMessage
-                                    message={messages.GROUP_SUMMARY}
-                                  />
-                                </Typography>
-                                <Stack
-                                  direction="row"
-                                  spacing={1}
-                                  useFlexGap
-                                  sx={{ mb: 2.5, flexWrap: 'wrap' }}
-                                >
-                                  <Chip
-                                    size="small"
-                                    label={getMessage(messages.UPLOADS_COUNT, {
-                                      count: versions.length,
-                                    })}
-                                    sx={{
-                                      bgcolor: 'transparent',
-                                      border: '1px solid',
-                                      borderColor: 'divider',
-                                    }}
-                                  />
-                                  <Chip
-                                    size="small"
-                                    label={getMessage(messages.TOTAL_SIZE, {
-                                      size: formatSize(totalSize),
-                                    })}
-                                    sx={{
-                                      bgcolor: 'transparent',
-                                      border: '1px solid',
-                                      borderColor: 'divider',
-                                    }}
-                                  />
-                                </Stack>
-                                <Typography
-                                  variant="subtitle2"
-                                  component="h3"
                                   sx={{ mb: 1.25, fontWeight: 700 }}
                                 >
                                   <TypedMessage
@@ -1430,9 +1387,19 @@ export const PackageListEntries = ({
                                                 size: formatSize(version.size),
                                               }}
                                             />
+                                            {version.uploadedBy ? (
+                                              <TypedMessage
+                                                message={
+                                                  messages.UPLOADED_BY_LABEL
+                                                }
+                                                params={{
+                                                  uploadedBy:
+                                                    version.uploadedBy,
+                                                }}
+                                              />
+                                            ) : null}
                                           </Typography>
-                                          {version.uploadedBy ||
-                                          version.tags?.length ? (
+                                          {version.tags?.length ? (
                                             <Box
                                               sx={{
                                                 display: 'flex',
@@ -1442,22 +1409,6 @@ export const PackageListEntries = ({
                                                 mt: 0.5,
                                               }}
                                             >
-                                              {version.uploadedBy ? (
-                                                <Typography
-                                                  variant="body2"
-                                                  color="text.secondary"
-                                                >
-                                                  <TypedMessage
-                                                    message={
-                                                      messages.UPLOADED_BY_LABEL
-                                                    }
-                                                    params={{
-                                                      uploadedBy:
-                                                        version.uploadedBy,
-                                                    }}
-                                                  />
-                                                </Typography>
-                                              ) : null}
                                               {version.tags?.length ? (
                                                 <Typography
                                                   variant="body2"

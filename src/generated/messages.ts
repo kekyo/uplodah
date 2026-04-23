@@ -579,33 +579,12 @@ export const messages = {
     fallback: "Description:" 
   } as SimpleMessageItem,
   /**
-   * VERSIONS ==> "Versions ({count:number})"
-   */
-  VERSIONS: { 
-    key: "VERSIONS", 
-    fallback: "Versions ({count:number})" 
-  } as MessageItem<{ count: number }>,
-  /**
-   * VERSIONS_LABEL ==> "Versions ({count:number}):"
-   */
-  VERSIONS_LABEL: { 
-    key: "VERSIONS_LABEL", 
-    fallback: "Versions ({count:number}):" 
-  } as MessageItem<{ count: number }>,
-  /**
    * VERSION ==> "Version {version}"
    */
   VERSION: { 
     key: "VERSION", 
     fallback: "Version {version}" 
   } as MessageItem<{ version: string }>,
-  /**
-   * DOWNLOADS ==> "{count:number} downloads"
-   */
-  DOWNLOADS: { 
-    key: "DOWNLOADS", 
-    fallback: "{count:number} downloads" 
-  } as MessageItem<{ count: number }>,
   /**
    * LOADING_MORE ==> "Loading more..."
    */
@@ -620,20 +599,6 @@ export const messages = {
     key: "LOADING_MORE_PACKAGES", 
     fallback: "Loading more files..." 
   } as SimpleMessageItem,
-  /**
-   * SHOWING_PACKAGES ==> "Showing {current:number} of {total:number} files"
-   */
-  SHOWING_PACKAGES: { 
-    key: "SHOWING_PACKAGES", 
-    fallback: "Showing {current:number} of {total:number} files" 
-  } as MessageItem<{ current: number; total: number }>,
-  /**
-   * ALL_PACKAGES_LOADED ==> "All {count:number} files loaded"
-   */
-  ALL_PACKAGES_LOADED: { 
-    key: "ALL_PACKAGES_LOADED", 
-    fallback: "All {count:number} files loaded" 
-  } as MessageItem<{ count: number }>,
   /**
    * ERROR_LOADING_FILES ==> "Error loading files: {error}"
    */
@@ -719,27 +684,6 @@ export const messages = {
     fallback: "Latest upload: {uploadedAt}" 
   } as MessageItem<{ uploadedAt: string }>,
   /**
-   * GROUP_SUMMARY ==> "Group Summary"
-   */
-  GROUP_SUMMARY: { 
-    key: "GROUP_SUMMARY", 
-    fallback: "Group Summary" 
-  } as SimpleMessageItem,
-  /**
-   * UPLOADS_COUNT ==> "{count:number} uploads"
-   */
-  UPLOADS_COUNT: { 
-    key: "UPLOADS_COUNT", 
-    fallback: "{count:number} uploads" 
-  } as MessageItem<{ count: number }>,
-  /**
-   * TOTAL_SIZE ==> "Total size: {size}"
-   */
-  TOTAL_SIZE: { 
-    key: "TOTAL_SIZE", 
-    fallback: "Total size: {size}" 
-  } as MessageItem<{ size: string }>,
-  /**
    * VERSIONS_HEADER ==> "Versions ({count:number})"
    */
   VERSIONS_HEADER: { 
@@ -754,33 +698,19 @@ export const messages = {
     fallback: "Upload ID: {uploadId}" 
   } as MessageItem<{ uploadId: string }>,
   /**
-   * FILE_SIZE_LABEL ==> "Size: {size}"
-   */
-  FILE_SIZE_LABEL: { 
-    key: "FILE_SIZE_LABEL", 
-    fallback: "Size: {size}" 
-  } as MessageItem<{ size: string }>,
-  /**
-   * VERSION_DETAILS_LABEL ==> "Upload ID: {uploadId} Size: {size}"
+   * VERSION_DETAILS_LABEL ==> "Upload ID: {uploadId}, Size: {size}"
    */
   VERSION_DETAILS_LABEL: { 
     key: "VERSION_DETAILS_LABEL", 
-    fallback: "Upload ID: {uploadId} Size: {size}" 
+    fallback: "Upload ID: {uploadId}, Size: {size}" 
   } as MessageItem<{ uploadId: string; size: string }>,
   /**
-   * UPLOADED_BY_LABEL ==> "Upload: {uploadedBy}"
+   * UPLOADED_BY_LABEL ==> ", User: {uploadedBy}"
    */
   UPLOADED_BY_LABEL: { 
     key: "UPLOADED_BY_LABEL", 
-    fallback: "Upload: {uploadedBy}" 
+    fallback: ", User: {uploadedBy}" 
   } as MessageItem<{ uploadedBy: string }>,
-  /**
-   * VERSION_COUNT ==> "Versions: {count:number}"
-   */
-  VERSION_COUNT: { 
-    key: "VERSION_COUNT", 
-    fallback: "Versions: {count:number}" 
-  } as MessageItem<{ count: number }>,
   /**
    * DOWNLOAD_FILE ==> "Download file"
    */
