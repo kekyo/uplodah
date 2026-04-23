@@ -97,8 +97,19 @@ interface BrowseSearchResponse {
   items: FileGroupSummary[];
 }
 
+type ArchiveRequestStatus = 'pending' | 'processing' | 'completed' | 'failed';
+
 interface CreateArchiveResponse {
+  requestId: string;
+  status: ArchiveRequestStatus;
+  statusPath: string;
   downloadPath: string;
+}
+
+interface ArchiveStatusResponse {
+  status: ArchiveRequestStatus;
+  downloadPath?: string;
+  error?: string;
 }
 
 interface ServerConfig {
@@ -510,6 +521,75 @@ export const isArchiveDownloadSizeExceeded = ({
  */
 export const formatArchiveRequestFileName = (date: dayjs.Dayjs): string =>
   date.format('YYYYMMDD_HHmmss');
+
+const archiveStatusPollIntervalMs = 1000;
+
+const waitForArchiveStatusPoll = async (): Promise<void> =>
+  await new Promise((resolve) => {
+    window.setTimeout(resolve, archiveStatusPollIntervalMs);
+  });
+
+const resolveArchiveErrorMessage = (
+  data: Partial<{ error: string; message: string }>,
+  fallbackMessage: string
+): string =>
+  typeof data.error === 'string'
+    ? data.error
+    : typeof data.message === 'string'
+      ? data.message
+      : fallbackMessage;
+
+/**
+ * Batch archive download button with in-progress feedback.
+ * @param props Archive download button state and action.
+ * @returns Button element.
+ */
+export const ArchiveDownloadButton = ({
+  selectedCount,
+  disabled,
+  inProgress,
+  sizeExceeded,
+  onClick,
+}: {
+  selectedCount: number;
+  disabled: boolean;
+  inProgress: boolean;
+  sizeExceeded: boolean;
+  onClick: () => void;
+}) => (
+  <Button
+    variant="contained"
+    size="small"
+    color={sizeExceeded ? 'error' : 'primary'}
+    startIcon={
+      inProgress ? (
+        <CircularProgress size={16} color="inherit" />
+      ) : (
+        <DownloadIcon />
+      )
+    }
+    disabled={disabled}
+    onClick={onClick}
+    sx={{
+      boxShadow: 'none',
+      minHeight: 40,
+      ...(sizeExceeded
+        ? {
+            '&.Mui-disabled': {
+              bgcolor: 'error.dark',
+              color: 'error.contrastText',
+              opacity: 0.72,
+            },
+          }
+        : {}),
+    }}
+  >
+    <TypedMessage
+      message={messages.DOWNLOAD_SELECTED_ARCHIVE}
+      params={{ count: selectedCount }}
+    />
+  </Button>
+);
 
 /**
  * Summarize selected versions within a visible file scope.
@@ -1909,19 +1989,62 @@ const PackageList = forwardRef<PackageListRef, PackageListProps>(
         }
         if (!response.ok) {
           throw new Error(
-            typeof data.error === 'string'
-              ? data.error
-              : typeof data.message === 'string'
-                ? data.message
-                : `HTTP error! status: ${response.status}`
+            resolveArchiveErrorMessage(
+              data,
+              `HTTP error! status: ${response.status}`
+            )
           );
         }
-        if (typeof data.downloadPath !== 'string') {
+        if (typeof data.statusPath !== 'string') {
           throw new Error(getMessage(messages.UNKNOWN_ERROR));
         }
 
+        let downloadPath: string | undefined;
+        while (!downloadPath) {
+          await waitForArchiveStatusPoll();
+
+          const statusResponse = await apiFetch(data.statusPath, {
+            credentials: 'same-origin',
+          });
+          const statusData = (await statusResponse
+            .json()
+            .catch(() => ({}))) as Partial<
+            ArchiveStatusResponse & { error: string; message: string }
+          >;
+
+          if (statusResponse.status === 401) {
+            return;
+          }
+          if (!statusResponse.ok) {
+            throw new Error(
+              resolveArchiveErrorMessage(
+                statusData,
+                `HTTP error! status: ${statusResponse.status}`
+              )
+            );
+          }
+          if (statusData.status === 'failed') {
+            throw new Error(
+              statusData.error || getMessage(messages.UNKNOWN_ERROR)
+            );
+          }
+          if (statusData.status === 'completed') {
+            if (typeof statusData.downloadPath !== 'string') {
+              throw new Error(getMessage(messages.UNKNOWN_ERROR));
+            }
+            downloadPath = statusData.downloadPath;
+            break;
+          }
+          if (
+            statusData.status !== 'pending' &&
+            statusData.status !== 'processing'
+          ) {
+            throw new Error(getMessage(messages.UNKNOWN_ERROR));
+          }
+        }
+
         const anchor = document.createElement('a');
-        anchor.href = data.downloadPath;
+        anchor.href = downloadPath;
         anchor.rel = 'noopener';
         document.body.appendChild(anchor);
         anchor.click();
@@ -2363,32 +2486,13 @@ const PackageList = forwardRef<PackageListRef, PackageListProps>(
                 useFlexGap
                 sx={{ alignItems: 'center', flexShrink: 0 }}
               >
-                <Button
-                  variant="contained"
-                  size="small"
-                  color={archiveDownloadSizeExceeded ? 'error' : 'primary'}
-                  startIcon={<DownloadIcon />}
+                <ArchiveDownloadButton
+                  selectedCount={downloadableSelectedArchiveItems.length}
                   disabled={archiveDownloadButtonDisabled}
+                  inProgress={archiveInProgress}
+                  sizeExceeded={archiveDownloadSizeExceeded}
                   onClick={handleDownloadSelectedArchive}
-                  sx={{
-                    boxShadow: 'none',
-                    minHeight: 40,
-                    ...(archiveDownloadSizeExceeded
-                      ? {
-                          '&.Mui-disabled': {
-                            bgcolor: 'error.dark',
-                            color: 'error.contrastText',
-                            opacity: 0.72,
-                          },
-                        }
-                      : {}),
-                  }}
-                >
-                  <TypedMessage
-                    message={messages.DOWNLOAD_SELECTED_ARCHIVE}
-                    params={{ count: downloadableSelectedArchiveItems.length }}
-                  />
-                </Button>
+                />
                 <Button
                   variant="outlined"
                   size="small"

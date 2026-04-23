@@ -742,9 +742,9 @@ export const messages = {
   /**
    * VERSIONS_HEADER ==> "Versions ({count:number})"
    */
-  VERSIONS_HEADER: {
-    key: "VERSIONS_HEADER",
-    fallback: "Versions ({count:number})"
+  VERSIONS_HEADER: { 
+    key: "VERSIONS_HEADER", 
+    fallback: "Versions ({count:number})" 
   } as MessageItem<{ count: number }>,
   /**
    * UPLOAD_ID_LABEL ==> "Upload ID: {uploadId}"
@@ -812,44 +812,44 @@ export const messages = {
   /**
    * SELECT_DIRECTORY_VERSIONS ==> "Select directory versions"
    */
-  SELECT_DIRECTORY_VERSIONS: {
-    key: "SELECT_DIRECTORY_VERSIONS",
-    fallback: "Select directory versions"
+  SELECT_DIRECTORY_VERSIONS: { 
+    key: "SELECT_DIRECTORY_VERSIONS", 
+    fallback: "Select directory versions" 
   } as SimpleMessageItem,
   /**
    * DESELECT_DIRECTORY_VERSIONS ==> "Deselect directory versions"
    */
-  DESELECT_DIRECTORY_VERSIONS: {
-    key: "DESELECT_DIRECTORY_VERSIONS",
-    fallback: "Deselect directory versions"
+  DESELECT_DIRECTORY_VERSIONS: { 
+    key: "DESELECT_DIRECTORY_VERSIONS", 
+    fallback: "Deselect directory versions" 
   } as SimpleMessageItem,
   /**
    * SELECT_FILE_GROUP_VERSIONS ==> "Select file versions"
    */
-  SELECT_FILE_GROUP_VERSIONS: {
-    key: "SELECT_FILE_GROUP_VERSIONS",
-    fallback: "Select file versions"
+  SELECT_FILE_GROUP_VERSIONS: { 
+    key: "SELECT_FILE_GROUP_VERSIONS", 
+    fallback: "Select file versions" 
   } as SimpleMessageItem,
   /**
    * DESELECT_FILE_GROUP_VERSIONS ==> "Deselect file versions"
    */
-  DESELECT_FILE_GROUP_VERSIONS: {
-    key: "DESELECT_FILE_GROUP_VERSIONS",
-    fallback: "Deselect file versions"
+  DESELECT_FILE_GROUP_VERSIONS: { 
+    key: "DESELECT_FILE_GROUP_VERSIONS", 
+    fallback: "Deselect file versions" 
   } as SimpleMessageItem,
   /**
    * SELECT_FILE_VERSION ==> "Select version"
    */
-  SELECT_FILE_VERSION: {
-    key: "SELECT_FILE_VERSION",
-    fallback: "Select version"
+  SELECT_FILE_VERSION: { 
+    key: "SELECT_FILE_VERSION", 
+    fallback: "Select version" 
   } as SimpleMessageItem,
   /**
    * DESELECT_FILE_VERSION ==> "Deselect version"
    */
-  DESELECT_FILE_VERSION: {
-    key: "DESELECT_FILE_VERSION",
-    fallback: "Deselect version"
+  DESELECT_FILE_VERSION: { 
+    key: "DESELECT_FILE_VERSION", 
+    fallback: "Deselect version" 
   } as SimpleMessageItem,
   /**
    * REGISTER_USER ==> "Register User"
@@ -1290,21 +1290,21 @@ export const messages = {
    */
   CONFIRM_FILE_DELETION_TITLE: { 
     key: "CONFIRM_FILE_DELETION_TITLE", 
-    fallback: "Delete file version"
+    fallback: "Delete file version" 
   } as SimpleMessageItem,
   /**
    * CONFIRM_DELETE_FILE_VERSION ==> "Are you sure you want to delete version "{uploadId}" of "{path}"? This action cannot be undone."
    */
   CONFIRM_DELETE_FILE_VERSION: { 
     key: "CONFIRM_DELETE_FILE_VERSION", 
-    fallback: "Are you sure you want to delete version \"{uploadId}\" of \"{path}\"? This action cannot be undone."
+    fallback: "Are you sure you want to delete version \"{uploadId}\" of \"{path}\"? This action cannot be undone." 
   } as MessageItem<{ uploadId: string; path: string }>,
   /**
    * FILE_VERSION_DELETE_FAILED ==> "Failed to delete file version"
    */
   FILE_VERSION_DELETE_FAILED: { 
     key: "FILE_VERSION_DELETE_FAILED", 
-    fallback: "Failed to delete file version"
+    fallback: "Failed to delete file version" 
   } as SimpleMessageItem,
   /**
    * CANCEL ==> "Cancel"

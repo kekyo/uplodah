@@ -10,6 +10,7 @@ import { describe, expect, test, vi } from 'vitest';
 import enMessages from '../src/ui/public/locale/en.json';
 import jaMessages from '../src/ui/public/locale/ja.json';
 import {
+  ArchiveDownloadButton,
   PackageListEntries,
   PackageListHeaderTitle,
   formatUploadedAt,
@@ -150,6 +151,29 @@ const renderHeaderTitle = (visibleDirectoryCount: number) =>
 const renderFileGroupIcon = (fileName: string) =>
   renderToStaticMarkup(createElement(resolveFileGroupIconComponent(fileName)));
 
+const renderArchiveDownloadButton = ({
+  inProgress,
+  disabled,
+}: {
+  inProgress: boolean;
+  disabled: boolean;
+}) =>
+  renderToStaticMarkup(
+    createElement(
+      TypedMessageProvider,
+      {
+        messages: enMessages,
+      },
+      createElement(ArchiveDownloadButton, {
+        selectedCount: 2,
+        disabled,
+        inProgress,
+        sizeExceeded: false,
+        onClick: vi.fn(),
+      })
+    )
+  );
+
 describe('package list entries', () => {
   test('uses the virtual-directory empty-state message for browse mode', () => {
     expect(enMessages.NO_FILES_FOUND).toBe(
@@ -192,6 +216,18 @@ describe('package list entries', () => {
     expect(renderFileGroupIcon('README')).toContain(
       'data-testid="InsertDriveFileIcon"'
     );
+  });
+
+  test('shows progress feedback in the archive download button while downloading', () => {
+    const html = renderArchiveDownloadButton({
+      inProgress: true,
+      disabled: true,
+    });
+
+    expect(html).toContain('Download selected (2)');
+    expect(html).toContain('disabled=""');
+    expect(html).toContain('MuiCircularProgress-root');
+    expect(html).not.toContain('data-testid="DownloadIcon"');
   });
 
   test('renders collapsed file group summary rows', () => {

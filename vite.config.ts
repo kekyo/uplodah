@@ -155,6 +155,7 @@ export default defineConfig(({ mode, command }) => {
           'zlib',
           'path',
           'url',
+          'worker_threads',
           'xml2js',
           'events',
           'stream',

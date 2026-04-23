@@ -6,6 +6,10 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { ReaderWriterLock } from 'async-primitives';
 import { randomUUID } from 'crypto';
+import { createReadStream } from 'fs';
+import { mkdtemp, rm, stat } from 'fs/promises';
+import { tmpdir } from 'os';
+import path from 'path';
 import dayjs, { type Dayjs } from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import { Logger } from '../../../types';
@@ -22,7 +26,10 @@ import {
 } from '../../../services/storageService';
 import { createUrlResolver } from '../../../utils/urlResolver';
 import { streamFile } from '../../../utils/fileStreaming';
-import { sendZipArchive, ZipArchiveEntry } from '../../../utils/zipArchive';
+import {
+  createZipArchiveFile,
+  ZipArchiveEntry,
+} from '../../../utils/zipArchive';
 import { canDeleteStoredVersion } from '../../../utils/storageAccess';
 
 dayjs.extend(utc);
@@ -64,14 +71,44 @@ export interface CreateFileArchiveRequestBody {
  * POST /api/files/archive-requests response body.
  */
 export interface CreateFileArchiveResponse {
-  /** Relative download path for the prepared archive request. */
+  /** Archive request identifier. */
+  requestId: string;
+  /** Current archive generation status. */
+  status: FileArchiveRequestStatus;
+  /** Relative status path for polling archive generation progress. */
+  statusPath: string;
+  /** Relative download path for the completed archive request. */
   downloadPath: string;
 }
 
+/**
+ * Archive generation status returned to the browser.
+ */
+export type FileArchiveRequestStatus =
+  | 'pending'
+  | 'processing'
+  | 'completed'
+  | 'failed';
+
+/**
+ * GET /api/files/archive-requests/:requestId/status response body.
+ */
+export interface FileArchiveStatusResponse {
+  /** Current archive generation status. */
+  status: FileArchiveRequestStatus;
+  /** Relative download path, present when the archive is completed. */
+  downloadPath?: string;
+  /** Failure detail, present when the archive generation failed. */
+  error?: string;
+}
+
 interface PendingFileArchiveRequest {
-  items: FileArchiveSelectionItem[];
+  status: FileArchiveRequestStatus;
   archiveFileName: string;
+  outputPath: string;
+  tempDirectoryPath: string;
   expiresAt: number;
+  error?: string;
 }
 
 const decodeWildcardPath = (rawPath: string): string => {
@@ -216,15 +253,62 @@ const normalizeArchiveItems = (
   return Array.from(uniqueItems.values());
 };
 
-const cleanupExpiredArchiveRequests = (
+const createArchiveDownloadPath = (requestId: string): string =>
+  `/api/files/archive-requests/${encodeURIComponent(requestId)}`;
+
+const createArchiveStatusPath = (requestId: string): string =>
+  `${createArchiveDownloadPath(requestId)}/status`;
+
+const createArchiveStatusResponse = (
+  requestId: string,
+  request: PendingFileArchiveRequest
+): FileArchiveStatusResponse => ({
+  status: request.status,
+  ...(request.status === 'completed'
+    ? {
+        downloadPath: createArchiveDownloadPath(requestId),
+      }
+    : {}),
+  ...(request.status === 'failed' && request.error
+    ? {
+        error: request.error,
+      }
+    : {}),
+});
+
+const cleanupArchiveRequestFiles = async (
+  request: PendingFileArchiveRequest,
+  logger: Logger
+): Promise<void> => {
+  try {
+    await rm(request.tempDirectoryPath, {
+      recursive: true,
+      force: true,
+    });
+  } catch (error) {
+    logger.warn(`Failed to clean archive request files: ${error}`);
+  }
+};
+
+const cleanupExpiredArchiveRequests = async (
   archiveRequests: Map<string, PendingFileArchiveRequest>,
-  now: number
-): void => {
+  now: number,
+  logger: Logger
+): Promise<void> => {
+  const cleanups: Promise<void>[] = [];
+
   archiveRequests.forEach((request, requestId) => {
-    if (request.expiresAt <= now) {
+    if (
+      request.expiresAt <= now &&
+      request.status !== 'pending' &&
+      request.status !== 'processing'
+    ) {
       archiveRequests.delete(requestId);
+      cleanups.push(cleanupArchiveRequestFiles(request, logger));
     }
   });
+
+  await Promise.all(cleanups);
 };
 
 const createArchiveEntryPath = (item: FileArchiveSelectionItem): string => {
@@ -233,6 +317,18 @@ const createArchiveEntryPath = (item: FileArchiveSelectionItem): string => {
     .filter((segment) => segment.length > 0);
   const fileName = pathSegments[pathSegments.length - 1] ?? 'file';
   return [...pathSegments, item.uploadId, fileName].join('/');
+};
+
+const createArchiveTempPaths = async (
+  requestId: string
+): Promise<{ tempDirectoryPath: string; outputPath: string }> => {
+  const tempDirectoryPath = await mkdtemp(
+    path.join(tmpdir(), 'uplodah-archive-')
+  );
+  return {
+    tempDirectoryPath,
+    outputPath: path.join(tempDirectoryPath, `${requestId}.zip`),
+  };
 };
 
 /**
@@ -268,6 +364,43 @@ export const registerFilesRoutes = async (
     ? ([deleteAuthHandler] as any)
     : [];
   const archiveRequests = new Map<string, PendingFileArchiveRequest>();
+  const archiveTasks = new Set<Promise<void>>();
+
+  fastify.addHook('onClose', async () => {
+    await Promise.allSettled(Array.from(archiveTasks));
+    await Promise.all(
+      Array.from(archiveRequests.values()).map((request) =>
+        cleanupArchiveRequestFiles(request, logger)
+      )
+    );
+    archiveRequests.clear();
+  });
+
+  const startArchiveRequestTask = (
+    requestId: string,
+    request: PendingFileArchiveRequest,
+    entries: readonly ZipArchiveEntry[]
+  ): void => {
+    request.status = 'processing';
+    const task = (async () => {
+      try {
+        await createZipArchiveFile(logger, locker, entries, request.outputPath);
+        request.status = 'completed';
+        request.expiresAt = dayjs().valueOf() + archiveRequestTtlMs;
+      } catch (error) {
+        request.status = 'failed';
+        request.error =
+          error instanceof Error ? error.message : 'Internal server error';
+        request.expiresAt = dayjs().valueOf() + archiveRequestTtlMs;
+        logger.error(`Failed to create archive ${requestId}: ${error}`);
+      }
+    })();
+
+    archiveTasks.add(task);
+    task.finally(() => {
+      archiveTasks.delete(task);
+    });
+  };
 
   fastify.get(
     '/',
@@ -314,7 +447,7 @@ export const registerFilesRoutes = async (
         return reply.status(400).send({ error: 'No files selected' });
       }
 
-      const resolvedItems: FileArchiveSelectionItem[] = [];
+      const entries: ZipArchiveEntry[] = [];
       let resolvedSizeBytes = 0;
       try {
         for (const item of items) {
@@ -331,9 +464,13 @@ export const registerFilesRoutes = async (
               .status(413)
               .send({ error: 'Selected files exceed maximum download size' });
           }
-          resolvedItems.push({
-            publicPath: version.publicPath,
-            uploadId: version.uploadId,
+          entries.push({
+            absoluteFilePath: version.absoluteFilePath,
+            archivePath: createArchiveEntryPath({
+              publicPath: version.publicPath,
+              uploadId: version.uploadId,
+            }),
+            uploadedAt: version.uploadedAt,
           });
         }
       } catch (error) {
@@ -342,21 +479,51 @@ export const registerFilesRoutes = async (
       }
 
       const now = dayjs().valueOf();
-      cleanupExpiredArchiveRequests(archiveRequests, now);
+      await cleanupExpiredArchiveRequests(archiveRequests, now, logger);
 
       const requestId = randomUUID();
-      archiveRequests.set(requestId, {
-        items: resolvedItems,
+      const { tempDirectoryPath, outputPath } =
+        await createArchiveTempPaths(requestId);
+      const archiveRequest: PendingFileArchiveRequest = {
+        status: 'pending',
         archiveFileName,
+        outputPath,
+        tempDirectoryPath,
         expiresAt: now + archiveRequestTtlMs,
-      });
+      };
+      archiveRequests.set(requestId, archiveRequest);
+      startArchiveRequestTask(requestId, archiveRequest, entries);
 
       const response: CreateFileArchiveResponse = {
-        downloadPath: `/api/files/archive-requests/${encodeURIComponent(
-          requestId
-        )}`,
+        requestId,
+        status: archiveRequest.status,
+        statusPath: createArchiveStatusPath(requestId),
+        downloadPath: createArchiveDownloadPath(requestId),
       };
       return reply.send(response);
+    }
+  );
+
+  fastify.get(
+    '/archive-requests/:requestId/status',
+    {
+      preHandler: authPreHandler,
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const requestId = (request.params as { requestId?: string }).requestId;
+      if (!requestId) {
+        return reply.status(404).send({ error: 'Archive request not found' });
+      }
+
+      const now = dayjs().valueOf();
+      await cleanupExpiredArchiveRequests(archiveRequests, now, logger);
+
+      const archiveRequest = archiveRequests.get(requestId);
+      if (!archiveRequest) {
+        return reply.status(404).send({ error: 'Archive request not found' });
+      }
+
+      return reply.send(createArchiveStatusResponse(requestId, archiveRequest));
     }
   );
 
@@ -372,56 +539,64 @@ export const registerFilesRoutes = async (
       }
 
       const now = dayjs().valueOf();
-      cleanupExpiredArchiveRequests(archiveRequests, now);
+      await cleanupExpiredArchiveRequests(archiveRequests, now, logger);
 
       const archiveRequest = archiveRequests.get(requestId);
       if (!archiveRequest) {
         return reply.status(404).send({ error: 'Archive request not found' });
       }
-      archiveRequests.delete(requestId);
+
+      if (archiveRequest.status === 'failed') {
+        return reply.status(500).send({
+          error: archiveRequest.error || 'Archive request failed',
+        });
+      }
+
+      if (archiveRequest.status !== 'completed') {
+        return reply
+          .status(409)
+          .send({ error: 'Archive request is not completed' });
+      }
 
       try {
-        const entries: ZipArchiveEntry[] = [];
-        let resolvedSizeBytes = 0;
-        for (const item of archiveRequest.items) {
-          const version = await storageService.getFileVersion(
-            item.publicPath,
-            item.uploadId
-          );
-          if (!version) {
-            return reply.status(404).send({ error: 'File version not found' });
-          }
-
-          resolvedSizeBytes += version.size;
-          if (resolvedSizeBytes > maxDownloadSizeBytes) {
-            return reply
-              .status(413)
-              .send({ error: 'Selected files exceed maximum download size' });
-          }
-
-          entries.push({
-            absoluteFilePath: version.absoluteFilePath,
-            archivePath: createArchiveEntryPath({
-              publicPath: version.publicPath,
-              uploadId: version.uploadId,
-            }),
-            uploadedAt: version.uploadedAt,
-          });
+        const archiveStats = await stat(archiveRequest.outputPath);
+        if (!archiveStats.isFile()) {
+          archiveRequests.delete(requestId);
+          await cleanupArchiveRequestFiles(archiveRequest, logger);
+          return reply.status(404).send({ error: 'Archive request not found' });
         }
 
-        await sendZipArchive(
-          logger,
-          locker,
-          entries,
-          reply,
-          {
-            contentDisposition: `attachment; filename*=UTF-8''${encodeURIComponent(
-              createArchiveFileName(realm, archiveRequest.archiveFileName)
-            )}`,
-          },
-          request.abortSignal
+        let cleanupStarted = false;
+        const cleanupAfterSend = () => {
+          if (cleanupStarted) {
+            return;
+          }
+          cleanupStarted = true;
+          archiveRequests.delete(requestId);
+          void cleanupArchiveRequestFiles(archiveRequest, logger);
+        };
+
+        const archiveStream = createReadStream(archiveRequest.outputPath);
+        archiveStream.once('error', cleanupAfterSend);
+        reply.raw.once('finish', cleanupAfterSend);
+        reply.raw.once('close', cleanupAfterSend);
+
+        reply.header('Content-Type', 'application/zip');
+        reply.header('Content-Length', archiveStats.size);
+        reply.header(
+          'Content-Disposition',
+          `attachment; filename*=UTF-8''${encodeURIComponent(
+            createArchiveFileName(realm, archiveRequest.archiveFileName)
+          )}`
         );
-      } catch (error) {
+
+        return reply.send(archiveStream);
+      } catch (error: any) {
+        if (error.code === 'ENOENT') {
+          archiveRequests.delete(requestId);
+          await cleanupArchiveRequestFiles(archiveRequest, logger);
+          return reply.status(404).send({ error: 'Archive request not found' });
+        }
         logger.error(`Failed to serve archive ${requestId}: ${error}`);
         return reply.status(500).send({ error: 'Internal server error' });
       }

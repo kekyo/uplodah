@@ -120,6 +120,28 @@ describe('Fastify files and upload API', () => {
       }
     );
 
+  const waitForArchiveCompletion = async (
+    statusPath: string
+  ): Promise<{ downloadPath: string }> => {
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const statusResponse = await fetch(
+        `http://localhost:${serverPort}${statusPath}`
+      );
+      expect(statusResponse.status).toBe(200);
+      const statusData = await statusResponse.json();
+      if (statusData.status === 'completed') {
+        expect(statusData.downloadPath).toEqual(expect.any(String));
+        return {
+          downloadPath: statusData.downloadPath,
+        };
+      }
+      expect(['pending', 'processing']).toContain(statusData.status);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    throw new Error('Archive request did not complete');
+  };
+
   test('should sanitize archive realm file names', () => {
     expect(sanitizeArchiveRealmFileName('Test Files API / full:*?"<>|')).toBe(
       'Test-Files-API-full'
@@ -218,13 +240,25 @@ describe('Fastify files and upload API', () => {
       );
       expect(archiveRequestResponse.status).toBe(200);
       const archiveRequestData = await archiveRequestResponse.json();
+      expect(archiveRequestData.requestId).toEqual(expect.any(String));
+      expect(['pending', 'processing', 'completed']).toContain(
+        archiveRequestData.status
+      );
       expect(archiveRequestData.downloadPath).toMatch(
         /^\/api\/files\/archive-requests\/.+/
       );
+      expect(archiveRequestData.statusPath).toBe(
+        `${archiveRequestData.downloadPath}/status`
+      );
       expect(archiveRequestData.downloadPath).not.toContain('20260420_123456');
+      expect(archiveRequestData.statusPath).not.toContain('20260420_123456');
+
+      const archiveStatusData = await waitForArchiveCompletion(
+        archiveRequestData.statusPath
+      );
 
       const archiveResponse = await fetch(
-        `http://localhost:${serverPort}${archiveRequestData.downloadPath}`
+        `http://localhost:${serverPort}${archiveStatusData.downloadPath}`
       );
       expect(archiveResponse.status).toBe(200);
       expect(archiveResponse.headers.get('content-type')).toContain(
@@ -256,7 +290,7 @@ describe('Fastify files and upload API', () => {
       ).toBe('second');
 
       const repeatedArchiveResponse = await fetch(
-        `http://localhost:${serverPort}${archiveRequestData.downloadPath}`
+        `http://localhost:${serverPort}${archiveStatusData.downloadPath}`
       );
       expect(repeatedArchiveResponse.status).toBe(404);
     } finally {
