@@ -3,7 +3,7 @@
 // Under MIT.
 // https://github.com/kekyo/uplodah
 
-import { Logger } from '../types';
+import type { Logger } from '../types.ts';
 
 /**
  * Generic request interface for URL resolution

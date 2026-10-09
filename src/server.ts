@@ -5,9 +5,9 @@
 
 import Fastify, {
   LogController,
-  FastifyInstance,
-  FastifyReply,
-  FastifyRequest,
+  type FastifyInstance,
+  type FastifyReply,
+  type FastifyRequest,
 } from 'fastify';
 import fastifyPassport from '@fastify/passport';
 import fastifySecureSession from '@fastify/secure-session';
@@ -19,27 +19,30 @@ import {
   name as packageName,
   version,
   git_commit_hash,
-} from './generated/packageMetadata';
-import { streamFile, StreamFileOptions } from './utils/fileStreaming';
-import { createStorageService } from './services/storageService';
-import { createAuthService } from './services/authService';
-import { createUserService, type User } from './services/userService';
-import { createTotpService } from './services/totpService';
-import { registerTotpRoutes } from './routes/api/totp';
-import { createSessionService } from './services/sessionService';
-import { createAuthFailureTrackerFromEnv } from './services/authFailureTracker';
-import { Logger, LogLevel, ServerConfig } from './types';
-import { createUrlResolver } from './utils/urlResolver';
-import { filterUploadDirectoryDetailsByUserAccess } from './utils/storageAccess';
+} from './generated/packageMetadata.ts';
+import { streamFile, type StreamFileOptions } from './utils/fileStreaming.ts';
+import { createStorageService } from './services/storageService.ts';
+import { createAuthService } from './services/authService.ts';
+import { createUserService, type User } from './services/userService.ts';
+import { createTotpService } from './services/totpService.ts';
+import { registerTotpRoutes } from './routes/api/totp.ts';
+import { createSessionService } from './services/sessionService.ts';
+import { createAuthFailureTrackerFromEnv } from './services/authFailureTracker.ts';
+import type { Logger, LogLevel, ServerConfig } from './types.ts';
+import { createUrlResolver } from './utils/urlResolver.ts';
+import { filterUploadDirectoryDetailsByUserAccess } from './utils/storageAccess.ts';
 import {
   createLocalStrategy,
   createBasicStrategy,
-  FastifyAuthConfig,
-} from './middleware/fastifyAuth';
-import { registerUiRoutes } from './routes/api/ui/index';
-import { registerUploadRoutes } from './routes/api/upload/index';
-import { registerFilesRoutes } from './routes/api/files/index';
-import { createReaderWriterLock, ReaderWriterLock } from 'async-primitives';
+  type FastifyAuthConfig,
+} from './middleware/fastifyAuth.ts';
+import { registerUiRoutes } from './routes/api/ui/index.ts';
+import { registerUploadRoutes } from './routes/api/upload/index.ts';
+import { registerFilesRoutes } from './routes/api/files/index.ts';
+import {
+  createReaderWriterLock,
+  type ReaderWriterLock,
+} from 'async-primitives';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

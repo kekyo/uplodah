@@ -7,19 +7,19 @@ import { constants } from 'fs';
 import { readFile, access } from 'fs/promises';
 import { join } from 'path';
 import { createReaderWriterLock } from 'async-primitives';
-import type { Logger, ServerConfig } from '../types';
-import { writePrivateFile } from '../utils/atomicFile';
+import type { Logger, ServerConfig } from '../types.ts';
+import { writePrivateFile } from '../utils/atomicFile.ts';
 import {
   generateSalt,
   hashPassword,
   verifyPassword,
   generateApiPassword,
   generateUserId,
-} from '../utils/crypto';
+} from '../utils/crypto.ts';
 import {
   checkPasswordStrength,
   getMinPasswordScore,
-} from '../utils/passwordStrength';
+} from '../utils/passwordStrength.ts';
 
 /**
  * API password data structure

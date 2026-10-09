@@ -4,8 +4,8 @@
 // https://github.com/kekyo/uplodah
 
 import { createReaderWriterLock } from 'async-primitives';
-import type { Logger } from '../types';
-import { generateSessionToken } from '../utils/crypto';
+import type { Logger } from '../types.ts';
+import { generateSessionToken } from '../utils/crypto.ts';
 
 /**
  * Session data structure
