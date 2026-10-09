@@ -29,6 +29,7 @@ import ApiPasswordDrawer from './components/ApiPasswordDrawer';
 import UserPasswordChangeDrawer from './components/UserPasswordChangeDrawer';
 import UserAvatarMenu from './components/UserAvatarMenu';
 import LoginDialog from './components/LoginDialog';
+import TotpDrawer from './components/TotpDrawer';
 import CommandExamplesAccordion from './components/CommandExamplesAccordion';
 import { name, repository_url, version } from '../generated/packageMetadata';
 import {
@@ -98,6 +99,7 @@ const AppContent = ({
   const [passwordResetDrawerOpen, setPasswordResetDrawerOpen] = useState(false);
   const [userDeleteDrawerOpen, setUserDeleteDrawerOpen] = useState(false);
   const [apiPasswordDrawerOpen, setApiPasswordDrawerOpen] = useState(false);
+  const [totpDrawerOpen, setTotpDrawerOpen] = useState(false);
   const [passwordChangeDrawerOpen, setPasswordChangeDrawerOpen] =
     useState(false);
   const [loginDialogOpenState, setLoginDialogOpenState] = useState(false);
@@ -518,6 +520,7 @@ const AppContent = ({
               onDeleteUser={() => setUserDeleteDrawerOpen(true)}
               onChangePassword={() => setPasswordChangeDrawerOpen(true)}
               onApiPassword={() => setApiPasswordDrawerOpen(true)}
+              onTotp={() => setTotpDrawerOpen(true)}
               onLogout={handleLogout}
               onLanguageChange={onLanguageChange}
               onThemeChange={onThemeChange}
@@ -590,6 +593,9 @@ const AppContent = ({
         onClose={handleClosePasswordChangeDrawer}
       />
 
+      {totpDrawerOpen && (
+        <TotpDrawer onClose={() => setTotpDrawerOpen(false)} />
+      )}
       <LoginDialog
         open={loginDialogOpen}
         onClose={handleCloseLoginDialog}
