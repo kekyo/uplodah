@@ -3,17 +3,17 @@
 // Under MIT.
 // https://github.com/kekyo/uplodah
 
-import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { Logger } from '../../../types';
-import { AuthService } from '../../../services/authService';
-import { StorageService } from '../../../services/storageService';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { Logger } from '../../../types.ts';
+import type { AuthService } from '../../../services/authService.ts';
+import type { StorageService } from '../../../services/storageService.ts';
 import {
-  AuthenticatedFastifyRequest,
+  type AuthenticatedFastifyRequest,
   createConditionalHybridAuthMiddleware,
-  FastifyAuthConfig,
+  type FastifyAuthConfig,
   requireRole,
-} from '../../../middleware/fastifyAuth';
-import { createUrlResolver } from '../../../utils/urlResolver';
+} from '../../../middleware/fastifyAuth.ts';
+import type { createUrlResolver } from '../../../utils/urlResolver.ts';
 
 /**
  * Upload routes configuration.

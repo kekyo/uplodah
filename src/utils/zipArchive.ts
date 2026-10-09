@@ -4,11 +4,11 @@
 // https://github.com/kekyo/uplodah
 
 import { stat } from 'fs/promises';
-import { ReaderWriterLock } from 'async-primitives';
+import type { ReaderWriterLock } from 'async-primitives';
 import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
+import utc from 'dayjs/plugin/utc.js';
 import { Worker, type WorkerOptions } from 'worker_threads';
-import { Logger } from '../types';
+import type { Logger } from '../types.ts';
 
 dayjs.extend(utc);
 

@@ -3,7 +3,7 @@
 // Under MIT.
 // https://github.com/kekyo/uplodah
 
-import { AuthMode, StorageDirectoryDescriptor } from '../types';
+import type { AuthMode, StorageDirectoryDescriptor } from '../types.ts';
 
 /**
  * Authenticated-user summary required for storage access decisions.

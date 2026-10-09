@@ -3,34 +3,34 @@
 // Under MIT.
 // https://github.com/kekyo/uplodah
 
-import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { ReaderWriterLock } from 'async-primitives';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { ReaderWriterLock } from 'async-primitives';
 import { randomUUID } from 'crypto';
 import { createReadStream } from 'fs';
 import { mkdtemp, rm, stat } from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
 import dayjs, { type Dayjs } from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import { Logger } from '../../../types';
-import { AuthService } from '../../../services/authService';
+import utc from 'dayjs/plugin/utc.js';
+import type { Logger } from '../../../types.ts';
+import type { AuthService } from '../../../services/authService.ts';
 import {
-  AuthenticatedFastifyRequest,
+  type AuthenticatedFastifyRequest,
   createConditionalHybridAuthMiddleware,
-  FastifyAuthConfig,
-} from '../../../middleware/fastifyAuth';
-import {
+  type FastifyAuthConfig,
+} from '../../../middleware/fastifyAuth.ts';
+import type {
   StorageService,
   StoredFileGroupInfo,
   StoredFileVersionInfo,
-} from '../../../services/storageService';
-import { createUrlResolver } from '../../../utils/urlResolver';
-import { streamFile } from '../../../utils/fileStreaming';
+} from '../../../services/storageService.ts';
+import type { createUrlResolver } from '../../../utils/urlResolver.ts';
+import { streamFile } from '../../../utils/fileStreaming.ts';
 import {
   createZipArchiveFile,
-  ZipArchiveEntry,
-} from '../../../utils/zipArchive';
-import { canDeleteStoredVersion } from '../../../utils/storageAccess';
+  type ZipArchiveEntry,
+} from '../../../utils/zipArchive.ts';
+import { canDeleteStoredVersion } from '../../../utils/storageAccess.ts';
 
 dayjs.extend(utc);
 
@@ -85,10 +85,7 @@ interface CreateFileArchiveResponse {
  * Archive generation status returned to the browser.
  */
 type FileArchiveRequestStatus =
-  | 'pending'
-  | 'processing'
-  | 'completed'
-  | 'failed';
+  'pending' | 'processing' | 'completed' | 'failed';
 
 /**
  * GET /api/files/archive-requests/:requestId/status response body.

@@ -4,8 +4,8 @@
 // https://github.com/kekyo/uplodah
 
 import { createReaderWriterLock } from 'async-primitives';
-import { Logger } from '../types';
-import { generateSessionToken } from '../utils/crypto';
+import type { Logger } from '../types.ts';
+import { generateSessionToken } from '../utils/crypto.ts';
 
 /**
  * Session data structure
@@ -17,6 +17,8 @@ export interface Session {
   role: string;
   expiresAt: Date;
   createdAt: Date;
+  /** Credential revision at authentication time. */
+  authVersion: number;
 }
 
 /**
@@ -27,6 +29,8 @@ export interface CreateSessionRequest {
   username: string;
   role: string;
   expirationHours?: number; // Default: 24 hours
+  /** Credential revision at authentication time; defaults to zero. */
+  authVersion?: number;
 }
 
 /**
@@ -35,6 +39,8 @@ export interface CreateSessionRequest {
 interface SessionServiceConfig {
   logger: Logger;
   cleanupIntervalMinutes?: number; // Default: 60 minutes
+  /** Checks that the account and credential revision are still current. */
+  validateUser?: (session: Session) => Promise<boolean>;
 }
 
 /**
@@ -192,6 +198,7 @@ export const createSessionService = (
         );
 
         const session: Session = {
+          authVersion: request.authVersion ?? 0,
           token,
           userId: request.userId,
           username: request.username,
@@ -241,7 +248,10 @@ export const createSessionService = (
         }
 
         const now = new Date();
-        if (session.expiresAt <= now) {
+        if (
+          session.expiresAt <= now ||
+          (config.validateUser && !(await config.validateUser(session)))
+        ) {
           sessions.delete(token);
           logger.debug(`Removed expired session for user: ${session.username}`);
           return undefined;

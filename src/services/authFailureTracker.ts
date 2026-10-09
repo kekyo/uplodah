@@ -4,7 +4,7 @@
 // https://github.com/kekyo/uplodah
 
 import { delay } from 'async-primitives';
-import { Logger } from '../types';
+import type { Logger } from '../types.ts';
 
 /**
  * Authentication failure entry

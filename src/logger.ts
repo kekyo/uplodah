@@ -4,7 +4,7 @@
 // https://github.com/kekyo/uplodah
 
 import dayjs from 'dayjs';
-import { Logger, LogLevel } from './types';
+import type { Logger, LogLevel } from './types.ts';
 
 const nowDate = () => dayjs().format('YYYY/MM/DD HH:mm:ss.SSS');
 

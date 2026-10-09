@@ -3,7 +3,7 @@
 // Under MIT.
 // https://github.com/kekyo/uplodah
 
-import { Logger, AuthMode } from '../types';
+import type { Logger, AuthMode } from '../types.ts';
 
 /**
  * Authentication mode service configuration

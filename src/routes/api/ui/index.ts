@@ -3,31 +3,31 @@
 // Under MIT.
 // https://github.com/kekyo/uplodah
 
-import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { Logger, StorageDirectoryDescriptor } from '../../../types';
-import { UserService } from '../../../services/userService';
-import { SessionService } from '../../../services/sessionService';
-import { AuthService } from '../../../services/authService';
-import { AuthenticatedFastifyRequest } from '../../../middleware/fastifyAuth';
+import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import type { Logger, StorageDirectoryDescriptor } from '../../../types.ts';
+import type { UserService } from '../../../services/userService.ts';
+import type { SessionService } from '../../../services/sessionService.ts';
+import type { AuthService } from '../../../services/authService.ts';
+import type { AuthenticatedFastifyRequest } from '../../../middleware/fastifyAuth.ts';
 import {
   createConditionalHybridAuthMiddleware,
-  FastifyAuthConfig,
-} from '../../../middleware/fastifyAuth';
+  type FastifyAuthConfig,
+} from '../../../middleware/fastifyAuth.ts';
 import {
   name as packageName,
   version,
   git_commit_hash,
-} from '../../../generated/packageMetadata';
-import {
+} from '../../../generated/packageMetadata.ts';
+import type {
   StorageService,
   StoredDirectoryInfo,
   StoredFileGroupSummaryInfo,
   StoredFileVersionInfo,
-} from '../../../services/storageService';
+} from '../../../services/storageService.ts';
 import {
   canDeleteStoredVersion,
   filterUploadDirectoryDetailsByUserAccess,
-} from '../../../utils/storageAccess';
+} from '../../../utils/storageAccess.ts';
 
 /**
  * Configuration for UI routes

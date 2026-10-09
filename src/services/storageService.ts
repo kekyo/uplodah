@@ -4,18 +4,18 @@
 // https://github.com/kekyo/uplodah
 
 import fs from 'fs/promises';
-import { Dirent } from 'fs';
+import type { Dirent } from 'fs';
 import path from 'path';
 import dayjs from 'dayjs';
-import customParseFormat from 'dayjs/plugin/customParseFormat';
-import utc from 'dayjs/plugin/utc';
-import {
+import customParseFormat from 'dayjs/plugin/customParseFormat.js';
+import utc from 'dayjs/plugin/utc.js';
+import type {
   Logger,
   ServerConfig,
   StorageDirectoryDescriptor,
   StoragePermission,
   StorageRule,
-} from '../types';
+} from '../types.ts';
 
 dayjs.extend(customParseFormat);
 dayjs.extend(utc);

@@ -209,8 +209,6 @@ const UserPasswordResetDrawer = ({
       onClose={handleClose}
       variant="temporary"
       sx={{
-        width: 400,
-        flexShrink: 0,
         '& .MuiDrawer-paper': {
           width: 400,
           boxSizing: 'border-box',
