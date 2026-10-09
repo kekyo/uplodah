@@ -95,6 +95,8 @@ export interface ServerConfig {
   logLevel?: LogLevel;
   authMode?: AuthMode;
   sessionSecret?: string;
+  /** Persistent TOTP encryption key file; defaults to totp.key alongside config.json. */
+  totpKeyFile?: string;
   passwordMinScore?: number; // 0-4, default: 2 (Good)
   passwordStrengthCheck?: boolean; // default: true
   maxUploadSizeMb?: number; // Maximum upload size in MB, default: 100
