@@ -146,6 +146,7 @@ The file is optional. If the default behavior works for you, you do not need it.
 `uplodah` supports optional authentication.
 Use `--auth-mode publish` to protect uploads only, or `--auth-mode full` to require authentication for the whole server.
 Initialize the first admin user with `uplodah --auth-init`, then generate API passwords from the Web UI for `curl` and other API clients.
+Users can enable optional TOTP two-step authentication from the user menu. Authenticator setup, recovery codes, and offline recovery are covered in the [authentication documentation](https://github.com/kekyo/uplodah#two-step-authentication-totp).
 
 ---
 

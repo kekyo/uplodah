@@ -80,7 +80,10 @@ describe('Fastify files and upload API', () => {
     );
 
     expect(response.status).toBe(200);
-    const sessionCookie = response.headers.get('set-cookie')?.split(';')[0];
+    const sessionCookie = response.headers
+      .getSetCookie()
+      .find((cookie) => cookie.startsWith('sessionToken='))
+      ?.split(';')[0];
     expect(sessionCookie).toBeDefined();
     return sessionCookie!;
   };

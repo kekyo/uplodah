@@ -61,7 +61,7 @@ It also provides a modern browser-based UI:
 - Virtual storage rules:
   - Per-directory store/delete control
   - Per-directory expiration rules
-- Authentication: protect uploads only or the whole server with UI login, user roles, and API passwords
+- Authentication: protect uploads only or the whole server with UI login, user roles, and API passwords; optional TOTP two-step authentication per user
 - Supports reverse proxies and subpath hosting
 - Docker image available
 - Health check endpoint at `/health`
@@ -437,7 +437,7 @@ If not specified, `uplodah` looks for `./config.json` in the current directory.
 All fields are optional.
 Only specify the ones you want to override.
 
-Relative `storageDir` and `usersFile` paths are resolved from the directory containing `config.json`.
+Relative `storageDir`, `usersFile`, and `totpKeyFile` paths are resolved from the directory containing `config.json`.
 
 ---
 
@@ -504,6 +504,65 @@ Available roles are:
 - `admin`: same as `publish`, plus user management
 
 Administrator users can also generate API passwords, but it is usually better to separate day-to-day upload accounts from the admin account.
+
+### Two-step authentication (TOTP)
+
+With authentication mode `publish` or `full`, each user can enable two-step authentication. It is disabled by default.
+
+1. Sign in to the UI and open "Two-step authentication" from the user menu at the top right.
+2. Enter your current password and select "Register authenticator".
+3. Scan the QR code with your authenticator app, or enter the "Manual setup key" if scanning is unavailable.
+4. Enter the app's six-digit code to enable two-step authentication.
+5. Save the ten recovery codes somewhere safe. They cannot be displayed again after closing this screen.
+
+QR codes are generated in the browser without sending the setup key to an external QR service.
+Use an authenticator app supporting [RFC 6238](https://www.rfc-editor.org/rfc/rfc6238.html) TOTP with SHA-1, six digits, and a 30-second period.
+
+Subsequent sign-ins require your password and an authenticator code.
+A code can only be used once; wait for the next code before authenticating again.
+Verification expires after five minutes and allows five attempts.
+Repeated failures trigger limits per user and per client IP for up to ten minutes.
+Keep the server and authenticator clocks synchronized and use HTTPS in public deployments.
+
+If you lose your authenticator, select "Use a recovery code" during verification.
+Each recovery code works once. Replacing the authenticator after signing in requires another unused authenticator or recovery code.
+
+The settings screen lets you replace the authenticator, regenerate recovery codes, or disable two-step authentication.
+Each action requires your current password and an unused authenticator or recovery code.
+The existing authenticator remains active until its replacement is confirmed.
+Completing registration or regenerating recovery codes invalidates previous recovery codes.
+Confirming a settings change invalidates sessions in other browsers.
+
+API clients such as curl continue to use API passwords, including in CI jobs.
+Resetting a user's UI password as an administrator also preserves their TOTP settings.
+
+#### Key storage and recovery
+
+The first registration creates an encryption key named `totp.key` alongside `config.json`.
+Set `totpKeyFile` in the configuration file or the `UPLODAH_TOTP_KEY_FILE` environment variable to choose another location.
+Relative paths in the configuration file are resolved against its directory.
+Create the destination directory in advance.
+
+TOTP setup keys are encrypted in `users.json`, and only hashes of recovery codes are stored.
+Back up both `users.json` and `totp.key`, and restrict access to the key.
+In Docker, store the key on a persistent volume too.
+The session's `sessionSecret` cannot replace this encryption key.
+Sharing a writable user file between multiple server processes is unsupported.
+
+If both the authenticator and recovery codes are unavailable, the server administrator can stop the server and reset the affected account:
+
+```bash
+uplodah --config-file ./config.json --totp-reset alice
+```
+
+Verify that the server is stopped before running this command; it does not detect running servers automatically.
+It removes the selected user's TOTP and recovery codes while preserving passwords, API passwords, and other accounts.
+Restart the server, sign in with the password, and register a new authenticator.
+
+The server refuses to start if an enrolled account's encryption key is missing or has changed.
+Restore the original key from backup.
+If restoration is impossible, reset every enrolled user using the command above; the reset does not require the key.
+If a corrupt key file remains, remove it after resetting all enrolled accounts and before restarting.
 
 ### Using API passwords
 
@@ -865,26 +924,28 @@ Without QEMU, you can only build for your native architecture.
 
 All settings are resolved with the priority **CLI > environment variable > config.json > default**.
 
-| CLI option                      | Environment variable                 | `config.json` key       | Description                                              | Valid values                               | Default             |
-| :------------------------------ | :----------------------------------- | :---------------------- | :------------------------------------------------------- | :----------------------------------------- | :------------------ |
-| `-p, --port <port>`             | `UPLODAH_PORT`                       | `port`                  | HTTP server listening port                               | 1-65535                                    | `5968`              |
-| `-b, --base-url <url>`          | `UPLODAH_BASE_URL`                   | `baseUrl`               | Fixed external base URL                                  | valid URL                                  | auto-detected       |
-| `-d, --storage-dir <dir>`       | `UPLODAH_STORAGE_DIR`                | `storageDir`            | Storage root directory                                   | valid path                                 | `./storage`         |
-| `-c, --config-file <path>`      | `UPLODAH_CONFIG_FILE`                | N/A                     | Path to the configuration file                           | valid path                                 | `./config.json`     |
-| `-u, --users-file <path>`       | `UPLODAH_USERS_FILE`                 | `usersFile`             | Path to the users database file                          | valid path                                 | `./users.json`      |
-| `-r, --realm <realm>`           | `UPLODAH_REALM`                      | `realm`                 | UI title and server label                                | string                                     | `uplodah [version]` |
-| `-l, --log-level <level>`       | `UPLODAH_LOG_LEVEL`                  | `logLevel`              | Log verbosity                                            | `debug`, `info`, `warn`, `error`, `ignore` | `info`              |
-| `--trusted-proxies <ips>`       | `UPLODAH_TRUSTED_PROXIES`            | `trustedProxies`        | Comma-separated trusted proxy IP list                    | list of IP addresses                       | none                |
-| `--auth-mode <mode>`            | `UPLODAH_AUTH_MODE`                  | `authMode`              | Authentication mode                                      | `none`, `publish`, `full`                  | `none`              |
-| N/A                             | `UPLODAH_SESSION_SECRET`             | `sessionSecret`         | Secret used for session cookies                          | string                                     | auto-generated      |
-| N/A                             | `UPLODAH_PASSWORD_MIN_SCORE`         | `passwordMinScore`      | Minimum password strength score                          | 0-4                                        | `2`                 |
-| N/A                             | `UPLODAH_PASSWORD_STRENGTH_CHECK`    | `passwordStrengthCheck` | Enable password strength checking                        | `true`, `false`                            | `true`              |
-| `--max-upload-size-mb <size>`   | `UPLODAH_MAX_UPLOAD_SIZE_MB`         | `maxUploadSizeMb`       | Maximum upload size in MB                                | 1-10000                                    | `100`               |
-| `--max-download-size-mb <size>` | `UPLODAH_MAX_DOWNLOAD_SIZE_MB`       | `maxDownloadSizeMb`     | Maximum selected batch download size in MB               | 1-10000                                    | `100`               |
-| N/A                             | N/A                                  | `storage`               | Per-virtual-directory storage policy                     | object                                     | unset               |
-| N/A                             | `UPLODAH_AUTH_FAILURE_DELAY_ENABLED` | N/A                     | Enable progressive delays for failed auth attempts       | `true`, `false`                            | `true`              |
-| N/A                             | `UPLODAH_AUTH_FAILURE_MAX_DELAY`     | N/A                     | Maximum delay for failed auth attempts (ms)              | number                                     | `10000`             |
-| `--auth-init`                   | N/A                                  | N/A                     | Initialize authentication with an interactive admin user | flag                                       | N/A                 |
+| CLI option                      | Environment variable                 | `config.json` key       | Description                                              | Valid values                               | Default                        |
+| :------------------------------ | :----------------------------------- | :---------------------- | :------------------------------------------------------- | :----------------------------------------- | :----------------------------- |
+| `-p, --port <port>`             | `UPLODAH_PORT`                       | `port`                  | HTTP server listening port                               | 1-65535                                    | `5968`                         |
+| `-b, --base-url <url>`          | `UPLODAH_BASE_URL`                   | `baseUrl`               | Fixed external base URL                                  | valid URL                                  | auto-detected                  |
+| `-d, --storage-dir <dir>`       | `UPLODAH_STORAGE_DIR`                | `storageDir`            | Storage root directory                                   | valid path                                 | `./storage`                    |
+| `-c, --config-file <path>`      | `UPLODAH_CONFIG_FILE`                | N/A                     | Path to the configuration file                           | valid path                                 | `./config.json`                |
+| `-u, --users-file <path>`       | `UPLODAH_USERS_FILE`                 | `usersFile`             | Path to the users database file                          | valid path                                 | `./users.json`                 |
+| `-r, --realm <realm>`           | `UPLODAH_REALM`                      | `realm`                 | UI title and server label                                | string                                     | `uplodah [version]`            |
+| `-l, --log-level <level>`       | `UPLODAH_LOG_LEVEL`                  | `logLevel`              | Log verbosity                                            | `debug`, `info`, `warn`, `error`, `ignore` | `info`                         |
+| `--trusted-proxies <ips>`       | `UPLODAH_TRUSTED_PROXIES`            | `trustedProxies`        | Comma-separated trusted proxy IP list                    | list of IP addresses                       | none                           |
+| `--auth-mode <mode>`            | `UPLODAH_AUTH_MODE`                  | `authMode`              | Authentication mode                                      | `none`, `publish`, `full`                  | `none`                         |
+| N/A                             | `UPLODAH_SESSION_SECRET`             | `sessionSecret`         | Secret used for session cookies                          | string                                     | auto-generated                 |
+| N/A                             | `UPLODAH_TOTP_KEY_FILE`              | `totpKeyFile`           | Encryption key file for TOTP setup keys                  | File path                                  | totp.key alongside config.json |
+| `--totp-reset <username>`       | N/A                                  | N/A                     | Reset a user's TOTP while the server is stopped          | Username                                   | N/A                            |
+| N/A                             | `UPLODAH_PASSWORD_MIN_SCORE`         | `passwordMinScore`      | Minimum password strength score                          | 0-4                                        | `2`                            |
+| N/A                             | `UPLODAH_PASSWORD_STRENGTH_CHECK`    | `passwordStrengthCheck` | Enable password strength checking                        | `true`, `false`                            | `true`                         |
+| `--max-upload-size-mb <size>`   | `UPLODAH_MAX_UPLOAD_SIZE_MB`         | `maxUploadSizeMb`       | Maximum upload size in MB                                | 1-10000                                    | `100`                          |
+| `--max-download-size-mb <size>` | `UPLODAH_MAX_DOWNLOAD_SIZE_MB`       | `maxDownloadSizeMb`     | Maximum selected batch download size in MB               | 1-10000                                    | `100`                          |
+| N/A                             | N/A                                  | `storage`               | Per-virtual-directory storage policy                     | object                                     | unset                          |
+| N/A                             | `UPLODAH_AUTH_FAILURE_DELAY_ENABLED` | N/A                     | Enable progressive delays for failed auth attempts       | `true`, `false`                            | `true`                         |
+| N/A                             | `UPLODAH_AUTH_FAILURE_MAX_DELAY`     | N/A                     | Maximum delay for failed auth attempts (ms)              | number                                     | `10000`                        |
+| `--auth-init`                   | N/A                                  | N/A                     | Initialize authentication with an interactive admin user | flag                                       | N/A                            |
 
 ## Other
 

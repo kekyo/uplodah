@@ -60,7 +60,7 @@ apacheやnginxを使い、手動で細かい調整を施し、WebDAVを有効に
 - 仮想ストレージルール：
   - ディレクトリごとの upload/delete 制御
   - ディレクトリごとの有効期限指定
-- 認証機能：アップロード専用またはサーバー全体を、UIログイン・ユーザーロール・APIパスワードで保護可能
+- 認証機能：アップロード専用またはサーバー全体を、UIログイン・ユーザーロール・APIパスワードで保護可能。ユーザーごとにTOTPによる二段階認証を設定可能
 - リバースプロキシとサブパス配信をサポート
 - Dockerイメージ利用可能
 - ヘルスチェックエンドポイント `/health` を提供
@@ -432,7 +432,7 @@ uplodah
 
 すべてのフィールドはオプションです。必要なものだけを上書きしてください。
 
-`storageDir` と `usersFile` の相対パスは `config.json` を含むディレクトリから解決されます。
+`storageDir`、`usersFile`、`totpKeyFile`の相対パスは、`config.json`を含むディレクトリを基準に解決されます。
 
 ---
 
@@ -499,6 +499,68 @@ You can do this through the web UI after logging in with your username and passw
 - `admin`: `publish` に加えてユーザー管理可能
 
 管理者ユーザーでも API パスワードを生成できますが、日常的なアップロード用アカウントとは分離して運用することを勧めます。
+
+### 二段階認証（TOTP）
+
+認証モードが`publish`または`full`の場合、ユーザーごとに二段階認証を有効にできます。初期状態では無効です。
+
+1. UIにログインし、右上のユーザーメニューから「二段階認証」を開きます。
+2. 現在のパスワードを入力して「認証アプリを登録」を選びます。
+3. 認証アプリでQRコードを読み取ります。読み取れない場合は「手入力用の登録キー」を入力してください。
+4. アプリに表示された6桁の確認コードを入力すると、二段階認証が有効になります。
+5. 表示された10個の復旧コードを、安全な場所に保存します。この画面を閉じると再表示できません。
+
+QRコードはブラウザー内で生成し、登録キーを外部のQRコード生成サービスに送信することはありません。
+[RFC 6238](https://www.rfc-editor.org/rfc/rfc6238.html)のTOTPに対応した認証アプリを使用してください。設定はSHA-1、6桁、30秒間隔です。
+
+有効化後は、ログイン時にパスワードと確認コードを入力します。一度使った確認コードは再利用できないため、続けて認証するときは次のコードを待ってください。
+確認画面の有効期限は5分、入力は5回までです。
+失敗を繰り返すと、ユーザー単位と接続元IP単位で最大10分間、試行を制限します。
+サーバーと認証アプリの時計を合わせ、公開環境ではHTTPSを使用してください。
+
+端末を紛失した場合は、確認画面で「復旧コードを使う」を選びます。
+復旧コードは各1回だけ使用できます。
+ログイン後の再登録にも別の確認コードまたは復旧コードが必要です。
+
+「二段階認証」の設定画面で、認証アプリの再登録、復旧コードの再発行、二段階認証の解除を行えます。
+いずれも現在のパスワードと、未使用の確認コードまたは復旧コードが必要です。
+再登録中は、新しい確認コードを確認するまで現在の認証アプリを使用できます。
+登録完了や復旧コードの再発行後は、以前の復旧コードを使用できません。
+設定を確定すると、操作中のブラウザーを除くセッションは無効になります。
+
+curlなどのAPIクライアントやCIは、これまでどおりAPIパスワードを使用します。
+TOTPの追加によるAPIパスワードの変更は不要です。
+管理者によるUIパスワードのリセットでも、TOTPの設定は維持されます。
+
+#### 鍵の保存と復旧
+
+初回登録時に、`config.json`と同じディレクトリへ暗号化鍵`totp.key`を作成します。
+保存先は、`config.json`の`totpKeyFile`または環境変数`UPLODAH_TOTP_KEY_FILE`で指定できます。
+設定ファイル内の相対パスは`config.json`のディレクトリを基準にします。
+保存先のディレクトリは事前に作成してください。
+
+`users.json`のTOTP登録キーは暗号化して保存し、復旧コードはハッシュのみを保存します。
+`users.json`と`totp.key`の両方をバックアップし、鍵へのアクセスを制限してください。
+Dockerでは鍵も永続ボリュームに保存します。
+セッション用の`sessionSecret`は、この暗号化鍵の代わりにはなりません。
+同じユーザーファイルを複数のサーバープロセスから同時に使用する構成には対応していません。
+
+認証アプリも復旧コードも使用できない場合は、サーバーを停止してから、サーバー管理者が対象ユーザーのTOTPをリセットできます。
+
+```bash
+uplodah --config-file ./config.json --totp-reset alice
+```
+
+実行前にサーバーの停止を確認してください。
+このコマンドは停止状態を自動判定しません。
+対象ユーザーのTOTPと復旧コードを削除し、パスワード、APIパスワード、他のユーザーは維持します。
+再起動後にパスワードでログインし、認証アプリを登録し直してください。
+
+TOTPが有効なユーザーがいる状態で暗号化鍵が失われたり変わったりすると、サーバーは起動しません。
+バックアップから元の鍵を復元してください。
+鍵を復元できない場合は、TOTPが有効な各ユーザーを上記のコマンドでリセットします。
+リセットに暗号化鍵は不要です。
+破損した鍵ファイルが残っている場合は、全ユーザーのリセット後に取り除いてから再起動してください。
 
 ### APIパスワードの使用
 
@@ -858,26 +920,28 @@ QEMUなしでは、ネイティブアーキテクチャ用にのみビルドで�
 
 すべての設定は **CLI > 環境変数 > config.json > デフォルト** の優先順位で解決されます。
 
-| CLIオプション                   | 環境変数                             | config.jsonキー         | 説明                                      | 有効な値                                   | デフォルト          |
-| :------------------------------ | :----------------------------------- | :---------------------- | :---------------------------------------- | :----------------------------------------- | :------------------ |
-| `-p, --port <port>`             | `UPLODAH_PORT`                       | `port`                  | HTTP サーバーの待ち受けポート             | 1-65535                                    | `5968`              |
-| `-b, --base-url <url>`          | `UPLODAH_BASE_URL`                   | `baseUrl`               | 外部公開 URL の固定ベース URL             | 有効な URL                                 | 自動解決            |
-| `-d, --storage-dir <dir>`       | `UPLODAH_STORAGE_DIR`                | `storageDir`            | ストレージルートディレクトリ              | 有効なパス                                 | `./storage`         |
-| `-c, --config-file <path>`      | `UPLODAH_CONFIG_FILE`                | N/A                     | 設定ファイルのパス                        | 有効なパス                                 | `./config.json`     |
-| `-u, --users-file <path>`       | `UPLODAH_USERS_FILE`                 | `usersFile`             | users.json ファイルへのパス               | 有効なパス                                 | `./users.json`      |
-| `-r, --realm <realm>`           | `UPLODAH_REALM`                      | `realm`                 | UI タイトルおよびサーバー表示名           | 文字列                                     | `uplodah [version]` |
-| `-l, --log-level <level>`       | `UPLODAH_LOG_LEVEL`                  | `logLevel`              | ログ出力レベル                            | `debug`, `info`, `warn`, `error`, `ignore` | `info`              |
-| `--trusted-proxies <ips>`       | `UPLODAH_TRUSTED_PROXIES`            | `trustedProxies`        | 信頼するプロキシ IP のカンマ区切りリスト  | IP アドレスのリスト                        | なし                |
-| `--auth-mode <mode>`            | `UPLODAH_AUTH_MODE`                  | `authMode`              | 認証モード                                | `none`, `publish`, `full`                  | `none`              |
-| N/A                             | `UPLODAH_SESSION_SECRET`             | `sessionSecret`         | セッション Cookie 用シークレット          | 文字列                                     | 自動生成            |
-| N/A                             | `UPLODAH_PASSWORD_MIN_SCORE`         | `passwordMinScore`      | パスワードの最小強度スコア                | 0-4                                        | `2`                 |
-| N/A                             | `UPLODAH_PASSWORD_STRENGTH_CHECK`    | `passwordStrengthCheck` | パスワード強度チェックを有効にする        | `true`, `false`                            | `true`              |
-| `--max-upload-size-mb <size>`   | `UPLODAH_MAX_UPLOAD_SIZE_MB`         | `maxUploadSizeMb`       | 最大アップロードサイズ (MB)               | 1-10000                                    | `100`               |
-| `--max-download-size-mb <size>` | `UPLODAH_MAX_DOWNLOAD_SIZE_MB`       | `maxDownloadSizeMb`     | 一括ダウンロード対象の最大合計サイズ (MB) | 1-10000                                    | `100`               |
-| N/A                             | N/A                                  | `storage`               | 仮想ディレクトリごとの保存ポリシー        | オブジェクト                               | 未設定              |
-| N/A                             | `UPLODAH_AUTH_FAILURE_DELAY_ENABLED` | N/A                     | 認証失敗時の段階的遅延を有効にする        | `true`, `false`                            | `true`              |
-| N/A                             | `UPLODAH_AUTH_FAILURE_MAX_DELAY`     | N/A                     | 認証失敗時の最大遅延時間 (ms)             | 数値                                       | `10000`             |
-| `--auth-init`                   | N/A                                  | N/A                     | 対話的な管理者ユーザー作成で認証を初期化  | フラグ                                     | N/A                 |
+| CLIオプション                   | 環境変数                             | config.jsonキー         | 説明                                         | 有効な値                                   | デフォルト                              |
+| :------------------------------ | :----------------------------------- | :---------------------- | :------------------------------------------- | :----------------------------------------- | :-------------------------------------- |
+| `-p, --port <port>`             | `UPLODAH_PORT`                       | `port`                  | HTTP サーバーの待ち受けポート                | 1-65535                                    | `5968`                                  |
+| `-b, --base-url <url>`          | `UPLODAH_BASE_URL`                   | `baseUrl`               | 外部公開 URL の固定ベース URL                | 有効な URL                                 | 自動解決                                |
+| `-d, --storage-dir <dir>`       | `UPLODAH_STORAGE_DIR`                | `storageDir`            | ストレージルートディレクトリ                 | 有効なパス                                 | `./storage`                             |
+| `-c, --config-file <path>`      | `UPLODAH_CONFIG_FILE`                | N/A                     | 設定ファイルのパス                           | 有効なパス                                 | `./config.json`                         |
+| `-u, --users-file <path>`       | `UPLODAH_USERS_FILE`                 | `usersFile`             | users.json ファイルへのパス                  | 有効なパス                                 | `./users.json`                          |
+| `-r, --realm <realm>`           | `UPLODAH_REALM`                      | `realm`                 | UI タイトルおよびサーバー表示名              | 文字列                                     | `uplodah [version]`                     |
+| `-l, --log-level <level>`       | `UPLODAH_LOG_LEVEL`                  | `logLevel`              | ログ出力レベル                               | `debug`, `info`, `warn`, `error`, `ignore` | `info`                                  |
+| `--trusted-proxies <ips>`       | `UPLODAH_TRUSTED_PROXIES`            | `trustedProxies`        | 信頼するプロキシ IP のカンマ区切りリスト     | IP アドレスのリスト                        | なし                                    |
+| `--auth-mode <mode>`            | `UPLODAH_AUTH_MODE`                  | `authMode`              | 認証モード                                   | `none`, `publish`, `full`                  | `none`                                  |
+| N/A                             | `UPLODAH_SESSION_SECRET`             | `sessionSecret`         | セッション Cookie 用シークレット             | 文字列                                     | 自動生成                                |
+| N/A                             | `UPLODAH_TOTP_KEY_FILE`              | `totpKeyFile`           | TOTP登録キーを暗号化する鍵の保存先           | ファイルパス                               | config.jsonと同じディレクトリのtotp.key |
+| `--totp-reset <username>`       | N/A                                  | N/A                     | サーバー停止中に指定ユーザーのTOTPをリセット | ユーザー名                                 | N/A                                     |
+| N/A                             | `UPLODAH_PASSWORD_MIN_SCORE`         | `passwordMinScore`      | パスワードの最小強度スコア                   | 0-4                                        | `2`                                     |
+| N/A                             | `UPLODAH_PASSWORD_STRENGTH_CHECK`    | `passwordStrengthCheck` | パスワード強度チェックを有効にする           | `true`, `false`                            | `true`                                  |
+| `--max-upload-size-mb <size>`   | `UPLODAH_MAX_UPLOAD_SIZE_MB`         | `maxUploadSizeMb`       | 最大アップロードサイズ (MB)                  | 1-10000                                    | `100`                                   |
+| `--max-download-size-mb <size>` | `UPLODAH_MAX_DOWNLOAD_SIZE_MB`       | `maxDownloadSizeMb`     | 一括ダウンロード対象の最大合計サイズ (MB)    | 1-10000                                    | `100`                                   |
+| N/A                             | N/A                                  | `storage`               | 仮想ディレクトリごとの保存ポリシー           | オブジェクト                               | 未設定                                  |
+| N/A                             | `UPLODAH_AUTH_FAILURE_DELAY_ENABLED` | N/A                     | 認証失敗時の段階的遅延を有効にする           | `true`, `false`                            | `true`                                  |
+| N/A                             | `UPLODAH_AUTH_FAILURE_MAX_DELAY`     | N/A                     | 認証失敗時の最大遅延時間 (ms)                | 数値                                       | `10000`                                 |
+| `--auth-init`                   | N/A                                  | N/A                     | 対話的な管理者ユーザー作成で認証を初期化     | フラグ                                     | N/A                                     |
 
 ## その他
 

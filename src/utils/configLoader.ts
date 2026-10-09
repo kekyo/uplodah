@@ -28,6 +28,8 @@ interface ConfigFile {
   trustedProxies?: string[];
   authMode?: AuthMode;
   sessionSecret?: string;
+  /** Persistent TOTP encryption key file; defaults to totp.key alongside config.json. */
+  totpKeyFile?: string;
   passwordMinScore?: number;
   passwordStrengthCheck?: boolean;
   maxUploadSizeMb?: number;
@@ -183,6 +185,11 @@ const validateConfig = (
     // path.resolve handles both absolute and relative paths correctly
     // If absolute: returns as-is, if relative: resolves from configDir
     validated.usersFile = resolve(configDir, config.usersFile);
+  }
+
+  // Resolve the persistent TOTP encryption key location
+  if (typeof config.totpKeyFile === 'string') {
+    validated.totpKeyFile = resolve(configDir, config.totpKeyFile);
   }
 
   // Validate realm
