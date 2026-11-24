@@ -904,8 +904,6 @@ podman run --rm --platform linux/arm64 alpine:latest uname -m
 
 Without QEMU, you can only build for your native architecture.
 
----
-
 ## Notes
 
 ### Health Check
@@ -946,10 +944,54 @@ All settings are resolved with the priority **CLI > environment variable > confi
 | N/A                             | `UPLODAH_AUTH_FAILURE_MAX_DELAY`     | N/A                     | Maximum delay for failed auth attempts (ms)              | number                                     | `10000`                        |
 | `--auth-init`                   | N/A                                  | N/A                     | Initialize authentication with an interactive admin user | flag                                       | N/A                            |
 
+---
+
 ## Other
 
-This server project is a sister project of [nuget-server](https://github.com/kekyo/nuget-server/).
+This server project is a sister project of [nuget-server](https://github.com/kekyo/nuget-server/) and [uplodah](https://github.com/kekyo/uplodah/).
 
 ## License
 
 Under MIT.
+
+---
+
+## History
+
+- 1.4.0:
+  - Fixed version-specific download links that could return the wrong file. If a nested file's name matches the `uploadId` format, use its `latestDownloadUrl` or append `?version=latest` to saved links for its latest version.
+  - Deleting a file version or letting it expire now preserves nested files stored under that version's directory.
+  - Concurrent uploads to the same public path now receive distinct `uploadId` values even within the same millisecond, preserving each version's contents and metadata.
+- 1.3.0:
+  - Added optional two-step sign-in with an authenticator app (TOTP), single-use recovery codes, and an offline `--totp-reset` command for administrators.
+  - Fixed the closing animation for the upload and account panels in the Web UI.
+  - Fixed parallel Docker builds that could use a base image for the wrong architecture.
+  - Fixed a Fastify startup warning and a configuration error when using Vite's native TypeScript loader.
+- 1.2.0:
+  - Dropping more files into the upload panel now appends them to the existing queue.
+- 1.1.0:
+  - Fixed search in expanded file groups so the version list and bulk download selection both respect the active filter.
+  - Simplified the version list and moved the uploader's name next to the file size.
+- 1.0.0:
+  - Added bulk downloads of selected file versions as a ZIP archive. The server builds the archive in the background and limits the combined file size with `maxDownloadSizeMb`.
+  - Restored the `curl` examples in `publish` mode and fixed repeated notifications when a session expired.
+- 0.5.0:
+  - Added deletion of individual file versions through the Web UI and API.
+  - Replaced the `readonly` directory setting with `accept` so uploads and deletions can be allowed independently. Use `"accept": []` for a read-only directory.
+  - Added uploader names and tags to the version list and made both searchable.
+  - The file list now shows empty virtual directories and relative paths for nested files. Opening a directory refreshes its file count.
+- 0.4.0:
+  - Made virtual directories collapsible and loaded their file lists on demand.
+  - Fixed missing files when browsing subdirectories of a configured virtual directory.
+- 0.3.0:
+  - Fixed uploads to nested subdirectories so the most specific virtual directory rule applies.
+  - Added file icons by extension and showed virtual directory descriptions in the file list and upload selector.
+  - Rolled back account changes when saving `users.json` failed.
+- 0.2.0:
+  - Rebuilt uplodah using code from `nuget-server` (1.7.0+) and added a language selector for English and Japanese to the Web UI.
+  - Added `publish` and `full` authentication modes, user roles, and API passwords.
+  - Changed the storage layout so virtual directories mirror their public paths under the storage root.
+- 0.1.2:
+  - Added a Docker image for `linux/amd64` and `linux/arm64`, with setup instructions in English and Japanese.
+- 0.1.0:
+  - Initial release.
