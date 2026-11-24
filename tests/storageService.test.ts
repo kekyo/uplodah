@@ -543,6 +543,34 @@ describe('storageService', () => {
     ).toBeUndefined();
   });
 
+  it('should keep a nested file when the parent version expires', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-08T10:00:00.000Z'));
+    const service = createService({
+      storage: { '/incoming': { expireSeconds: 10 } },
+    });
+    await service.initialize();
+    const parent = await service.storeFile(
+      'incoming/report.txt',
+      Buffer.from('report')
+    );
+
+    vi.setSystemTime(new Date('2026-04-08T10:00:05.000Z'));
+    const nestedPath = `${parent.publicPath}/${parent.uploadId}`;
+    const nested = await service.storeFile(nestedPath, Buffer.from('nested'));
+    vi.setSystemTime(new Date('2026-04-08T10:00:10.000Z'));
+
+    expect(
+      await service.getFileVersion(parent.publicPath, parent.uploadId)
+    ).toBeUndefined();
+    const directories = await service.listDirectoryFileGroups('/incoming');
+    expect(directories.map((file) => file.publicPath)).toEqual([nestedPath]);
+    const remaining = await service.getFileVersion(nestedPath, nested.uploadId);
+    expect(await fs.readFile(remaining!.absoluteFilePath, 'utf8')).toBe(
+      'nested'
+    );
+  });
+
   it('should ignore version directories with invalid metadata json', async () => {
     const service = createService({
       storage: {
