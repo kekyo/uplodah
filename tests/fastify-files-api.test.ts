@@ -203,6 +203,60 @@ describe('Fastify files and upload API', () => {
     }
   }, 30000);
 
+  test.each(['incoming/report%20draft.txt', 'archive-requests'])(
+    'should keep issued version URLs and nested latest URLs independent for %s',
+    async (publicPath) => {
+      const server = await startServer('none', { storage: { '/': {} } });
+
+      try {
+        const first = await uploadFile(publicPath, 'first report');
+        expect(first.status).toBe(201);
+        const report = await first.json();
+        expect(report.path).toBe(publicPath);
+        expect(first.headers.get('location')).toBe(report.downloadUrl);
+
+        const updated = await uploadFile(publicPath, 'updated report');
+        expect(updated.status).toBe(201);
+        const nestedPath = `${publicPath}/${report.uploadId}`;
+        const nestedUpload = await uploadFile(nestedPath, 'nested file');
+        expect(nestedUpload.status).toBe(201);
+        const nested = await nestedUpload.json();
+
+        expect(await (await fetch(report.downloadUrl)).text()).toBe(
+          'first report'
+        );
+        expect(await (await fetch(report.latestDownloadUrl)).text()).toBe(
+          'updated report'
+        );
+        expect(await (await fetch(nested.latestDownloadUrl)).text()).toBe(
+          'nested file'
+        );
+
+        const listing = await fetch(`http://localhost:${serverPort}/api/files`);
+        expect((await listing.json()).items).toContainEqual(
+          expect.objectContaining({
+            publicPath: nestedPath,
+            latestDownloadUrl: nested.latestDownloadUrl,
+          })
+        );
+
+        expect(
+          (await fetch(nested.latestDownloadUrl, { method: 'DELETE' })).status
+        ).toBe(400);
+        expect(
+          (await fetch(report.downloadUrl, { method: 'DELETE' })).status
+        ).toBe(200);
+        expect((await fetch(report.downloadUrl)).status).toBe(404);
+        expect(await (await fetch(nested.downloadUrl)).text()).toBe(
+          'nested file'
+        );
+      } finally {
+        await server.close();
+      }
+    },
+    30000
+  );
+
   test('should create ZIP archives for selected file versions', async () => {
     const server = await startServer('none', {
       storage: {

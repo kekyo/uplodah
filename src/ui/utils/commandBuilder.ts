@@ -3,6 +3,8 @@
 // Under MIT.
 // https://github.com/kekyo/uplodah
 
+import { buildFileDownloadPath } from '../../utils/fileDownloadPath.ts';
+
 interface ServerUrlInfo {
   baseUrl?: string;
   port: number;
@@ -104,12 +106,7 @@ export const buildDownloadCommand = (options: CommandOptions): string => {
     apiPassword,
   } = options;
 
-  const basePath = `${resolveServerOrigin(serverUrl)}/api/files/${encodePublicPath(
-    publicPath
-  )}`;
-  const url = uploadId
-    ? `${basePath}/${encodeURIComponent(uploadId)}`
-    : basePath;
+  const url = `${resolveServerOrigin(serverUrl)}${buildFileDownloadPath(publicPath, uploadId)}`;
   const outputFileName = publicPath.split('/').pop() || 'report.txt';
 
   return `curl -L "${url}"${buildAuthOption(

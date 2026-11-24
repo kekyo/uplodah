@@ -26,6 +26,7 @@ import type {
 } from '../../../services/storageService.ts';
 import type { createUrlResolver } from '../../../utils/urlResolver.ts';
 import { streamFile } from '../../../utils/fileStreaming.ts';
+import { splitFileVersionPath } from '../../../utils/fileDownloadPath.ts';
 import {
   createZipArchiveFile,
   type ZipArchiveEntry,
@@ -108,9 +109,14 @@ interface PendingFileArchiveRequest {
   error?: string;
 }
 
-const decodeWildcardPath = (rawPath: string): string => {
-  const segments = rawPath.split('/');
-  return segments.map((segment) => decodeURIComponent(segment)).join('/');
+const getFileDownloadTarget = (
+  request: FastifyRequest
+): { publicPath: string; uploadId: string | undefined } => {
+  const publicPath = (request.params as { '*': string })['*'];
+  const query = request.query as { version?: string };
+  const version =
+    query.version === 'latest' ? undefined : splitFileVersionPath(publicPath);
+  return version ?? { publicPath, uploadId: undefined };
 };
 
 const withAbsoluteUrls = (
@@ -129,6 +135,9 @@ const withAbsoluteUrls = (
 });
 
 const archiveRequestTtlMs = 5 * 60 * 1000;
+// Archive requests have UUIDs; timestamp-based upload IDs use the file route.
+const archiveRequestRoute =
+  '/archive-requests/:requestId(^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$)';
 
 const reservedWindowsFileNames = new Set([
   'CON',
@@ -502,7 +511,7 @@ export const registerFilesRoutes = async (
   );
 
   fastify.get(
-    '/archive-requests/:requestId/status',
+    `${archiveRequestRoute}/status`,
     {
       preHandler: authPreHandler,
     },
@@ -525,7 +534,7 @@ export const registerFilesRoutes = async (
   );
 
   fastify.get(
-    '/archive-requests/:requestId',
+    archiveRequestRoute,
     {
       preHandler: authPreHandler,
     },
@@ -606,39 +615,12 @@ export const registerFilesRoutes = async (
       preHandler: authPreHandler,
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const rawPath = (request.params as { '*': string })['*'];
-      if (!rawPath) {
-        return reply.status(404).send({ error: 'File not found' });
-      }
-
       try {
-        const decodedPath = decodeWildcardPath(rawPath);
-        let latestVersion;
-        try {
-          latestVersion =
-            await storageService.getLatestFileVersion(decodedPath);
-        } catch (error) {
-          if (error instanceof URIError) {
-            throw error;
-          }
-          latestVersion = undefined;
-        }
-
+        const { publicPath, uploadId } = getFileDownloadTarget(request);
         const resolvedVersion =
-          latestVersion ||
-          (await (async () => {
-            const segments = decodedPath.split('/');
-            if (segments.length < 2) {
-              return undefined;
-            }
-
-            const uploadId = segments[segments.length - 1];
-            const filePath = segments.slice(0, -1).join('/');
-            if (!uploadId || filePath.length === 0) {
-              return undefined;
-            }
-            return await storageService.getFileVersion(filePath, uploadId);
-          })());
+          uploadId === undefined
+            ? await storageService.getLatestFileVersion(publicPath)
+            : await storageService.getFileVersion(publicPath, uploadId);
 
         if (!resolvedVersion) {
           return reply.status(404).send({ error: 'File not found' });
@@ -673,13 +655,16 @@ export const registerFilesRoutes = async (
       preHandler: deleteAuthPreHandler,
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const rawPath = (request.params as { '*': string })['*'];
-      if (!rawPath) {
-        return reply.status(400).send({ error: 'File path is required' });
-      }
-
       try {
-        const decodedPath = decodeWildcardPath(rawPath);
+        const { publicPath, uploadId } = getFileDownloadTarget(request);
+        if (!publicPath) {
+          return reply.status(400).send({ error: 'File path is required' });
+        }
+        if (uploadId === undefined) {
+          return reply.status(400).send({
+            error: 'Deleting the latest file version requires an upload ID',
+          });
+        }
         const authMode = authService.getAuthMode();
         const authRequest = request as AuthenticatedFastifyRequest;
         const currentUser = authRequest.user
@@ -689,40 +674,8 @@ export const registerFilesRoutes = async (
               authenticated: true,
             }
           : null;
-        let latestVersion;
-        try {
-          latestVersion =
-            await storageService.getLatestFileVersion(decodedPath);
-        } catch (error) {
-          if (error instanceof URIError) {
-            throw error;
-          }
-          latestVersion = undefined;
-        }
-
-        if (latestVersion) {
-          return reply.status(400).send({
-            error: 'Deleting the latest file version requires an upload ID',
-          });
-        }
-
-        const segments = decodedPath.split('/');
-        if (segments.length < 2) {
-          return reply.status(400).send({
-            error: 'Deleting the latest file version requires an upload ID',
-          });
-        }
-
-        const uploadId = segments[segments.length - 1];
-        const filePath = segments.slice(0, -1).join('/');
-        if (!uploadId || filePath.length === 0) {
-          return reply.status(400).send({
-            error: 'Deleting the latest file version requires an upload ID',
-          });
-        }
-
         const targetVersion = await storageService.getFileVersion(
-          filePath,
+          publicPath,
           uploadId
         );
         if (!targetVersion) {
@@ -744,7 +697,10 @@ export const registerFilesRoutes = async (
         const handle = await locker.writeLock();
         let deleted = false;
         try {
-          deleted = await storageService.deleteFileVersion(filePath, uploadId);
+          deleted = await storageService.deleteFileVersion(
+            publicPath,
+            uploadId
+          );
         } finally {
           handle.release();
         }

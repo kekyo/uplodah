@@ -215,23 +215,21 @@ curl -X POST http://localhost:5968/api/upload/foobar/report.txt \
 
 ![Download](./images/download.png)
 
-cURLでダウンロードする場合も、どのバージョンをダウンロードするかを指定する必要があります。
-これは、アップロード時に返されるJSONの情報で正確に示されますが、日時がわかっていればURLを構築可能です。
-以下に例を示します。
-
-最新バージョンをダウンロード（ファイル名のみ指定）:
+最新版をダウンロードするには、アップロード応答の `latestDownloadUrl` を使います。次の例は `report.txt` の最新版を取得します。
 
 ```bash
 curl -L "http://localhost:5968/api/files/report.txt" -o ./report.txt
 ```
 
-特定バージョンをダウンロード（`YYYYMMDD_HHmmss_fff`の形式）:
+アップロード時の内容をダウンロードするには、応答の `downloadUrl` または `Location` ヘッダーの URL を使います。公開パスとバージョンを識別する `uploadId` が分かれば、次のように URL を組み立てられます。
 
 ```bash
 curl -L "http://localhost:5968/api/files/report.txt/20260406_203040_123" -o ./report.txt
 ```
 
-特定バージョンの日時の形式は、完全に同一日時に複数のアップロードがあった場合に、末尾に `_1`, `_2` ... のようなサフィックスが追加されることがあることに注意して下さい。
+`uploadId` は UTC の日時を `YYYYMMDD_HHmmss_fff` 形式で表します。同じ公開パスで ID が重なると、末尾に `_1`、`_2` などの連番が付きます。
+
+サブディレクトリ内のファイル名が `uploadId` と同じ形式の場合、そのファイルの `latestDownloadUrl` には `?version=latest` が付きます。以前に保存した最新版 URL でそのファイルを取得する場合も、このクエリを付けてください。
 
 Web UI で複数のバージョンを選択して一括ダウンロードする場合、サーバーはバックグラウンドジョブとして ZIP を生成し、ダウンロードまたは期限切れまで一時ファイルとして保持します。ZIP ファイル名は `{realm}_YYYYMMDD_HHmmss.zip` 形式になります。この日時部分はブラウザのローカルタイムゾーンで生成されます。サーバー側の一時ファイル名には、ブラウザから指定されたファイル名を流用しません。
 
