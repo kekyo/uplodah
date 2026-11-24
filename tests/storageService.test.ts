@@ -371,6 +371,80 @@ describe('storageService', () => {
     expect(second.uploadId).toBe('20260408_101112_345_1');
   });
 
+  it('should keep concurrent uploads in the same millisecond as separate versions', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-08T10:11:12.345Z'));
+    const service = createService();
+    await service.initialize();
+
+    const uploads = [
+      {
+        content: 'first report',
+        metadata: { uploadedBy: 'alice', tags: ['daily'] },
+      },
+      {
+        content: 'second report',
+        metadata: { uploadedBy: 'bob', tags: ['weekly'] },
+      },
+    ];
+    const versions = await Promise.all(
+      uploads.map(
+        async ({ content, metadata }) =>
+          await createService().storeFile(
+            'report.txt',
+            Buffer.from(content),
+            metadata
+          )
+      )
+    );
+
+    expect(versions.map((version) => version.uploadId).sort()).toEqual([
+      '20260408_101112_345',
+      '20260408_101112_345_1',
+    ]);
+    for (const [index, upload] of uploads.entries()) {
+      const stored = await service.getFileVersion(
+        'report.txt',
+        versions[index]!.uploadId
+      );
+      expect(stored).toMatchObject(upload.metadata);
+      expect(await fs.readFile(stored!.absoluteFilePath, 'utf8')).toBe(
+        upload.content
+      );
+    }
+  });
+
+  it('should release the upload ID after an incomplete write so the upload can be retried', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-08T10:11:12.345Z'));
+    const service = createService();
+    await service.initialize();
+
+    const writeFile = fs.writeFile;
+    const writes = vi
+      .spyOn(fs, 'writeFile')
+      .mockImplementationOnce(writeFile)
+      .mockRejectedValueOnce(new Error('Disk full'));
+    try {
+      await expect(
+        service.storeFile('report.txt', Buffer.from('incomplete'))
+      ).rejects.toThrow('Disk full');
+    } finally {
+      writes.mockRestore();
+    }
+
+    expect(await service.getLatestFileVersion('report.txt')).toBeUndefined();
+    const retried = await service.storeFile(
+      'report.txt',
+      Buffer.from('complete')
+    );
+    expect(retried.uploadId).toBe('20260408_101112_345');
+    const stored = await service.getFileVersion('report.txt', retried.uploadId);
+    expect(await fs.readFile(stored!.absoluteFilePath, 'utf8')).toBe(
+      'complete'
+    );
+  });
+
   it('should generate uploadIds and version URLs from UTC timestamps', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-04-08T19:11:12.345+09:00'));
@@ -541,6 +615,34 @@ describe('storageService', () => {
     expect(
       await service.getLatestFileVersion('incoming/report.txt')
     ).toBeUndefined();
+  });
+
+  it('should keep a nested file when the parent version expires', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-08T10:00:00.000Z'));
+    const service = createService({
+      storage: { '/incoming': { expireSeconds: 10 } },
+    });
+    await service.initialize();
+    const parent = await service.storeFile(
+      'incoming/report.txt',
+      Buffer.from('report')
+    );
+
+    vi.setSystemTime(new Date('2026-04-08T10:00:05.000Z'));
+    const nestedPath = `${parent.publicPath}/${parent.uploadId}`;
+    const nested = await service.storeFile(nestedPath, Buffer.from('nested'));
+    vi.setSystemTime(new Date('2026-04-08T10:00:10.000Z'));
+
+    expect(
+      await service.getFileVersion(parent.publicPath, parent.uploadId)
+    ).toBeUndefined();
+    const directories = await service.listDirectoryFileGroups('/incoming');
+    expect(directories.map((file) => file.publicPath)).toEqual([nestedPath]);
+    const remaining = await service.getFileVersion(nestedPath, nested.uploadId);
+    expect(await fs.readFile(remaining!.absoluteFilePath, 'utf8')).toBe(
+      'nested'
+    );
   });
 
   it('should ignore version directories with invalid metadata json', async () => {

@@ -26,11 +26,6 @@ interface UploadRoutesConfig {
   urlResolver: ReturnType<typeof createUrlResolver>;
 }
 
-const decodeWildcardPath = (rawPath: string): string => {
-  const segments = rawPath.split('/');
-  return segments.map((segment) => decodeURIComponent(segment)).join('/');
-};
-
 const parseUploadTagsHeader = (
   rawHeader: string | string[] | undefined
 ): string[] | undefined => {
@@ -97,8 +92,8 @@ export const registerUploadRoutes = async (
     url: '/*',
     preHandler: authPreHandler,
     handler: async (request: FastifyRequest, reply: FastifyReply) => {
-      const rawPath = (request.params as { '*': string })['*'];
-      if (!rawPath) {
+      const publicPath = (request.params as { '*': string })['*'];
+      if (!publicPath) {
         return reply.status(400).send({ error: 'Upload path is required' });
       }
 
@@ -108,10 +103,9 @@ export const registerUploadRoutes = async (
       }
 
       try {
-        const decodedPath = decodeWildcardPath(rawPath);
         const authRequest = request as AuthenticatedFastifyRequest;
         const storedFile = await storageService.storeFile(
-          decodedPath,
+          publicPath,
           fileBuffer,
           {
             uploadedBy: authRequest.user?.username ?? 'anonymous',

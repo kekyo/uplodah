@@ -9,6 +9,10 @@ import path from 'path';
 import dayjs from 'dayjs';
 import customParseFormat from 'dayjs/plugin/customParseFormat.js';
 import utc from 'dayjs/plugin/utc.js';
+import {
+  buildFileDownloadPath,
+  uploadIdPattern,
+} from '../utils/fileDownloadPath.ts';
 import type {
   Logger,
   ServerConfig,
@@ -257,11 +261,6 @@ interface InternalStoredFileVersion extends StoredUploadMetadata {
   absoluteFilePath: string;
 }
 
-interface InternalStoredFileGroupSummary {
-  normalizedPath: NormalizedPublicPath;
-  latestVersion: InternalStoredFileVersion;
-}
-
 interface ResolvedVirtualDirectory {
   virtualDirectoryPath: string;
   relativeSegments: string[];
@@ -304,17 +303,8 @@ export const createStorageService = (
     }
   };
 
-  const directoryExists = async (targetPath: string): Promise<boolean> => {
-    try {
-      const stat = await fs.stat(targetPath);
-      return stat.isDirectory();
-    } catch {
-      return false;
-    }
-  };
-
   const parseUploadId = (uploadId: string): UploadIdParts | undefined => {
-    const match = uploadId.match(/^(\d{8}_\d{6}_\d{3})(?:_(\d+))?$/);
+    const match = uploadId.match(uploadIdPattern);
     if (!match) {
       return undefined;
     }
@@ -353,11 +343,6 @@ export const createStorageService = (
     }
     return rightParts.sequence - leftParts.sequence;
   };
-
-  const encodePublicPath = (normalizedPath: NormalizedPublicPath): string =>
-    normalizedPath.segments
-      .map((segment) => encodeURIComponent(segment))
-      .join('/');
 
   const buildDisplayPath = (directoryPath: string, fileName: string): string =>
     directoryPath === '/' ? fileName : `${directoryPath}/${fileName}`;
@@ -566,7 +551,12 @@ export const createStorageService = (
   const resolveReadablePublicPath = (
     rawPublicPath: string
   ): NormalizedPublicPath | undefined => {
-    const normalizedPath = normalizeStoredPublicPath(rawPublicPath);
+    let normalizedPath: NormalizedPublicPath;
+    try {
+      normalizedPath = normalizeStoredPublicPath(rawPublicPath);
+    } catch {
+      return undefined;
+    }
     const resolution = resolveConfiguredVirtualDirectory(
       normalizedPath.segments
     );
@@ -604,14 +594,10 @@ export const createStorageService = (
     rawPublicPath: string,
     permission: StoragePermission
   ): boolean => {
-    try {
-      const normalizedPath = resolveReadablePublicPath(rawPublicPath);
-      return normalizedPath
-        ? isPermissionAccepted(normalizedPath.storageRule, permission)
-        : false;
-    } catch {
-      return false;
-    }
+    const normalizedPath = resolveReadablePublicPath(rawPublicPath);
+    return normalizedPath
+      ? isPermissionAccepted(normalizedPath.storageRule, permission)
+      : false;
   };
 
   const getAvailableUploadDirectoryDetails =
@@ -679,15 +665,16 @@ export const createStorageService = (
     }
   };
 
-  const removeVersionDirectory = async (
-    versionDirectoryPath: string,
-    cleanupBoundaryPath: string
+  const removeVersionFiles = async (
+    absoluteFilePath: string
   ): Promise<void> => {
-    await fs.rm(versionDirectoryPath, { recursive: true, force: true });
-    await cleanupEmptyDirectories(
-      path.dirname(versionDirectoryPath),
-      cleanupBoundaryPath
-    );
+    const versionDirectoryPath = path.dirname(absoluteFilePath);
+    // A version directory can also contain file groups for nested public paths.
+    await fs.rm(path.join(versionDirectoryPath, 'metadata.json'), {
+      force: true,
+    });
+    await fs.rm(absoluteFilePath, { force: true });
+    await cleanupEmptyDirectories(versionDirectoryPath, storageRoot);
   };
 
   const isExpired = (
@@ -705,7 +692,10 @@ export const createStorageService = (
     uploadId: version.uploadId,
     uploadedAt: version.uploadedAt,
     size: version.size,
-    versionDownloadPath: `/api/files/${encodePublicPath(normalizedPath)}/${encodeURIComponent(version.uploadId)}`,
+    versionDownloadPath: buildFileDownloadPath(
+      normalizedPath.publicPath,
+      version.uploadId
+    ),
   });
 
   const createGroupSummaryInfo = (
@@ -720,7 +710,10 @@ export const createStorageService = (
     fileName: normalizedPath.fileName,
     latestUploadId: latestVersion.uploadId,
     latestUploadedAt: latestVersion.uploadedAt,
-    latestDownloadPath: `/api/files/${encodePublicPath(normalizedPath)}`,
+    latestDownloadPath: buildFileDownloadPath(
+      normalizedPath.publicPath,
+      undefined
+    ),
   });
 
   const createStoredVersion = (
@@ -736,8 +729,14 @@ export const createStorageService = (
     publicPath: normalizedPath.publicPath,
     displayPath: normalizedPath.displayPath,
     directoryPath: normalizedPath.directoryPath,
-    latestDownloadPath: `/api/files/${encodePublicPath(normalizedPath)}`,
-    versionDownloadPath: `/api/files/${encodePublicPath(normalizedPath)}/${encodeURIComponent(version.uploadId)}`,
+    latestDownloadPath: buildFileDownloadPath(
+      normalizedPath.publicPath,
+      undefined
+    ),
+    versionDownloadPath: buildFileDownloadPath(
+      normalizedPath.publicPath,
+      version.uploadId
+    ),
   });
 
   const scanVersionDirectory = async (
@@ -751,20 +750,6 @@ export const createStorageService = (
       logger.warn(
         `Ignoring invalid uploadId directory: ${versionDirectoryPath}`
       );
-      return undefined;
-    }
-
-    if (
-      isExpired(
-        normalizedPath.storageRule?.expireSeconds,
-        uploadIdParts.timestamp,
-        nowMs
-      )
-    ) {
-      logger.info(
-        `Removing expired upload: ${normalizedPath.displayPath} (${uploadId})`
-      );
-      await removeVersionDirectory(versionDirectoryPath, storageRoot);
       return undefined;
     }
 
@@ -791,6 +776,20 @@ export const createStorageService = (
       return undefined;
     }
 
+    if (
+      isExpired(
+        normalizedPath.storageRule?.expireSeconds,
+        uploadIdParts.timestamp,
+        nowMs
+      )
+    ) {
+      logger.info(
+        `Removing expired upload: ${normalizedPath.displayPath} (${uploadId})`
+      );
+      await removeVersionFiles(absoluteFilePath);
+      return undefined;
+    }
+
     return {
       ...metadata,
       uploadId,
@@ -803,14 +802,14 @@ export const createStorageService = (
 
   const scanGroupDirectory = async (
     normalizedPath: NormalizedPublicPath,
-    groupDirectoryPath: string
+    versionEntries: Dirent[]
   ): Promise<InternalStoredFileVersion[]> => {
-    const versionEntries = await safeReadDirectory(groupDirectoryPath);
+    const groupDirectoryPath = getGroupDirectoryPath(normalizedPath);
     const nowMs = Date.now();
     const versions: InternalStoredFileVersion[] = [];
 
     for (const entry of versionEntries) {
-      if (!entry.isDirectory()) {
+      if (!entry.isDirectory() || !uploadIdPattern.test(entry.name)) {
         continue;
       }
 
@@ -833,17 +832,13 @@ export const createStorageService = (
 
   const scanGroupDirectorySummary = async (
     normalizedPath: NormalizedPublicPath,
-    groupDirectoryPath: string
-  ): Promise<InternalStoredFileGroupSummary | undefined> => {
-    const versionEntries = await safeReadDirectory(groupDirectoryPath);
+    versionEntries: Dirent[]
+  ): Promise<StoredFileGroupSummaryInfo | undefined> => {
+    const groupDirectoryPath = getGroupDirectoryPath(normalizedPath);
     const nowMs = Date.now();
     let latestVersion: InternalStoredFileVersion | undefined;
 
     for (const entry of versionEntries) {
-      if (!entry.isDirectory()) {
-        continue;
-      }
-
       const version = await scanVersionDirectory(
         normalizedPath,
         path.join(groupDirectoryPath, entry.name),
@@ -863,10 +858,7 @@ export const createStorageService = (
     }
 
     return latestVersion
-      ? {
-          normalizedPath,
-          latestVersion,
-        }
+      ? createGroupSummaryInfo(normalizedPath, latestVersion)
       : undefined;
   };
 
@@ -884,7 +876,10 @@ export const createStorageService = (
       fileName: normalizedPath.fileName,
       latestUploadId: latestVersion.uploadId,
       latestUploadedAt: latestVersion.uploadedAt,
-      latestDownloadPath: `/api/files/${encodePublicPath(normalizedPath)}`,
+      latestDownloadPath: buildFileDownloadPath(
+        normalizedPath.publicPath,
+        undefined
+      ),
       versions: versions.map((version) =>
         createVersionInfo(normalizedPath, version)
       ),
@@ -918,188 +913,55 @@ export const createStorageService = (
     latestDownloadPath: group.latestDownloadPath,
   });
 
-  const scanLegacyStorage = async (): Promise<
-    InternalStoredFileGroupInfo[]
-  > => {
-    const groups: InternalStoredFileGroupInfo[] = [];
-    const entries = await safeReadDirectory(storageRoot);
-
-    for (const entry of entries) {
-      if (!entry.isDirectory() || entry.name.startsWith('.')) {
-        continue;
-      }
-
-      const normalizedPath = resolveReadablePublicPath(entry.name);
-      if (!normalizedPath) {
-        continue;
-      }
-      const groupDirectoryPath = path.join(storageRoot, entry.name);
-      const versions = await scanGroupDirectory(
-        normalizedPath,
-        groupDirectoryPath
-      );
-      if (versions.length > 0) {
-        groups.push(createGroupInfo(normalizedPath, versions));
-      }
-    }
-
-    return groups;
-  };
-
-  const scanLegacyStorageSummaries = async (): Promise<
-    StoredFileGroupSummaryInfo[]
-  > => {
-    const groups: StoredFileGroupSummaryInfo[] = [];
-    const entries = await safeReadDirectory(storageRoot);
-
-    for (const entry of entries) {
-      if (!entry.isDirectory() || entry.name.startsWith('.')) {
-        continue;
-      }
-
-      const normalizedPath = resolveReadablePublicPath(entry.name);
-      if (!normalizedPath) {
-        continue;
-      }
-      const groupDirectoryPath = path.join(storageRoot, entry.name);
-      const summary = await scanGroupDirectorySummary(
-        normalizedPath,
-        groupDirectoryPath
-      );
-      if (summary) {
-        groups.push(
-          createGroupSummaryInfo(summary.normalizedPath, summary.latestVersion)
+  const visitFileGroups = async (
+    visit: (
+      group: NormalizedPublicPath,
+      versionEntries: Dirent[]
+    ) => Promise<void>
+  ): Promise<void> => {
+    const walk = async (
+      directoryPath: string,
+      publicPath: string
+    ): Promise<void> => {
+      const entries = await safeReadDirectory(directoryPath);
+      const directories = entries.filter((entry) => entry.isDirectory());
+      if (publicPath) {
+        const versions = directories.filter((entry) =>
+          uploadIdPattern.test(entry.name)
         );
-      }
-    }
-
-    return groups;
-  };
-
-  const looksLikeGroupDirectory = async (
-    targetPath: string,
-    currentSegments: string[]
-  ): Promise<boolean> => {
-    let normalizedPath: NormalizedPublicPath;
-    try {
-      const resolvedPath = resolveReadablePublicPath(currentSegments.join('/'));
-      if (!resolvedPath) {
-        return false;
-      }
-      normalizedPath = resolvedPath;
-    } catch {
-      return false;
-    }
-
-    const entries = await safeReadDirectory(targetPath);
-    const childDirectories = entries.filter((entry) => entry.isDirectory());
-    if (childDirectories.length === 0) {
-      return false;
-    }
-
-    const nowMs = Date.now();
-    for (const entry of childDirectories) {
-      if (!parseUploadId(entry.name)) {
-        continue;
-      }
-
-      const version = await scanVersionDirectory(
-        normalizedPath,
-        path.join(targetPath, entry.name),
-        entry.name,
-        nowMs
-      );
-      if (version) {
-        return true;
-      }
-    }
-
-    return false;
-  };
-
-  const scanTreeStorage = async (
-    currentPath: string,
-    currentSegments: string[]
-  ): Promise<InternalStoredFileGroupInfo[]> => {
-    const groups: InternalStoredFileGroupInfo[] = [];
-    const entries = await safeReadDirectory(currentPath);
-
-    for (const entry of entries) {
-      if (!entry.isDirectory()) {
-        continue;
-      }
-
-      const nextPath = path.join(currentPath, entry.name);
-      const nextSegments = [...currentSegments, entry.name];
-
-      if (await looksLikeGroupDirectory(nextPath, nextSegments)) {
-        const normalizedPath = resolveReadablePublicPath(
-          nextSegments.join('/')
-        );
-        if (!normalizedPath) {
-          continue;
-        }
-        const versions = await scanGroupDirectory(normalizedPath, nextPath);
         if (versions.length > 0) {
-          groups.push(createGroupInfo(normalizedPath, versions));
+          const normalizedPath = resolveReadablePublicPath(publicPath);
+          if (normalizedPath) {
+            await visit(normalizedPath, versions);
+          }
         }
-      } else {
-        groups.push(...(await scanTreeStorage(nextPath, nextSegments)));
-      }
-    }
-
-    return groups;
-  };
-
-  const scanTreeStorageSummaries = async (
-    currentPath: string,
-    currentSegments: string[]
-  ): Promise<StoredFileGroupSummaryInfo[]> => {
-    const groups: StoredFileGroupSummaryInfo[] = [];
-    const entries = await safeReadDirectory(currentPath);
-
-    for (const entry of entries) {
-      if (!entry.isDirectory()) {
-        continue;
+        if (!hasStorageRules) {
+          return;
+        }
       }
 
-      const nextPath = path.join(currentPath, entry.name);
-      const nextSegments = [...currentSegments, entry.name];
-
-      if (await looksLikeGroupDirectory(nextPath, nextSegments)) {
-        const normalizedPath = resolveReadablePublicPath(
-          nextSegments.join('/')
-        );
-        if (!normalizedPath) {
+      // A file group may have both versions of its own and nested file groups.
+      for (const entry of directories) {
+        if (!hasStorageRules && entry.name.startsWith('.')) {
           continue;
         }
-        const summary = await scanGroupDirectorySummary(
-          normalizedPath,
-          nextPath
-        );
-        if (summary) {
-          groups.push(
-            createGroupSummaryInfo(
-              summary.normalizedPath,
-              summary.latestVersion
-            )
-          );
-        }
-      } else {
-        groups.push(
-          ...(await scanTreeStorageSummaries(nextPath, nextSegments))
+        await walk(
+          path.join(directoryPath, entry.name),
+          publicPath ? `${publicPath}/${entry.name}` : entry.name
         );
       }
-    }
-
-    return groups;
+    };
+    await walk(storageRoot, '');
   };
 
   const scanAllGroups = async (): Promise<InternalStoredFileGroupInfo[]> => {
-    const groups = hasStorageRules
-      ? await scanTreeStorage(storageRoot, [])
-      : await scanLegacyStorage();
-
+    const groups: InternalStoredFileGroupInfo[] = [];
+    await visitFileGroups(async (normalizedPath, entries) => {
+      const versions = await scanGroupDirectory(normalizedPath, entries);
+      if (versions.length > 0) {
+        groups.push(createGroupInfo(normalizedPath, versions));
+      }
+    });
     groups.sort((left, right) =>
       compareUploadIdsDescending(left.latestUploadId, right.latestUploadId)
     );
@@ -1109,10 +971,13 @@ export const createStorageService = (
   const scanAllGroupSummaries = async (): Promise<
     StoredFileGroupSummaryInfo[]
   > => {
-    const groups = hasStorageRules
-      ? await scanTreeStorageSummaries(storageRoot, [])
-      : await scanLegacyStorageSummaries();
-
+    const groups: StoredFileGroupSummaryInfo[] = [];
+    await visitFileGroups(async (normalizedPath, entries) => {
+      const summary = await scanGroupDirectorySummary(normalizedPath, entries);
+      if (summary) {
+        groups.push(summary);
+      }
+    });
     groups.sort((left, right) =>
       compareUploadIdsDescending(left.latestUploadId, right.latestUploadId)
     );
@@ -1130,7 +995,7 @@ export const createStorageService = (
     const groupDirectoryPath = getGroupDirectoryPath(normalizedPath);
     const versions = await scanGroupDirectory(
       normalizedPath,
-      groupDirectoryPath
+      await safeReadDirectory(groupDirectoryPath)
     );
 
     if (versions.length === 0) {
@@ -1144,20 +1009,25 @@ export const createStorageService = (
     return version ? createStoredVersion(normalizedPath, version) : undefined;
   };
 
-  const createUploadId = async (
-    normalizedPath: NormalizedPublicPath
-  ): Promise<string> => {
+  const createVersionDirectory = async (
+    groupDirectoryPath: string
+  ): Promise<{ uploadId: string; versionDirectoryPath: string }> => {
     const baseId = dayjs().utc().format('YYYYMMDD_HHmmss_SSS');
-    const groupDirectoryPath = getGroupDirectoryPath(normalizedPath);
-    let uploadId = baseId;
-    let sequence = 1;
+    await fs.mkdir(groupDirectoryPath, { recursive: true });
 
-    while (await directoryExists(path.join(groupDirectoryPath, uploadId))) {
-      uploadId = `${baseId}_${sequence}`;
-      sequence += 1;
+    for (let sequence = 0; ; sequence++) {
+      const uploadId = sequence === 0 ? baseId : `${baseId}_${sequence}`;
+      const versionDirectoryPath = path.join(groupDirectoryPath, uploadId);
+      try {
+        // Creating the directory reserves this ID across all storage writers.
+        await fs.mkdir(versionDirectoryPath);
+        return { uploadId, versionDirectoryPath };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+          throw error;
+        }
+      }
     }
-
-    return uploadId;
   };
 
   return {
@@ -1214,7 +1084,7 @@ export const createStorageService = (
       const groupDirectoryPath = getGroupDirectoryPath(normalizedPath);
       const versions = await scanGroupDirectory(
         normalizedPath,
-        groupDirectoryPath
+        await safeReadDirectory(groupDirectoryPath)
       );
       return versions.map((version) =>
         createVersionInfo(normalizedPath, version)
@@ -1281,19 +1151,24 @@ export const createStorageService = (
       );
 
       const groupDirectoryPath = getGroupDirectoryPath(normalizedPath);
-      const uploadId = await createUploadId(normalizedPath);
-      const versionDirectoryPath = path.join(groupDirectoryPath, uploadId);
       const normalizedMetadata = normalizeStoredUploadMetadata(metadata);
-
-      await fs.mkdir(versionDirectoryPath, { recursive: true });
-      await fs.writeFile(
-        path.join(versionDirectoryPath, 'metadata.json'),
-        JSON.stringify(normalizedMetadata)
+      const { uploadId, versionDirectoryPath } =
+        await createVersionDirectory(groupDirectoryPath);
+      const absoluteFilePath = path.join(
+        versionDirectoryPath,
+        normalizedPath.fileName
       );
-      await fs.writeFile(
-        path.join(versionDirectoryPath, normalizedPath.fileName),
-        fileContent
-      );
+      try {
+        await fs.writeFile(absoluteFilePath, fileContent);
+        // Readers recognize the version when its metadata is present.
+        await fs.writeFile(
+          path.join(versionDirectoryPath, 'metadata.json'),
+          JSON.stringify(normalizedMetadata)
+        );
+      } catch (error) {
+        await removeVersionFiles(absoluteFilePath);
+        throw error;
+      }
 
       const storedVersion = await resolveStoredVersion(
         normalizedPath.publicPath,
@@ -1334,10 +1209,7 @@ export const createStorageService = (
         return false;
       }
 
-      await removeVersionDirectory(
-        path.dirname(storedVersion.absoluteFilePath),
-        storageRoot
-      );
+      await removeVersionFiles(storedVersion.absoluteFilePath);
       return true;
     },
 

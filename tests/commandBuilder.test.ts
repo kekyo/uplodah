@@ -79,6 +79,17 @@ describe('commandBuilder', () => {
     );
   });
 
+  it('should select the latest file when its name looks like a version ID', () => {
+    const command = buildDownloadCommand({
+      serverUrl: { port: 5968, isHttps: false },
+      publicPath: 'incoming/report.txt/20260408_120000_000_1',
+    });
+
+    expect(command).toContain(
+      '"http://localhost:5968/api/files/incoming/report.txt/20260408_120000_000_1?version=latest"'
+    );
+  });
+
   it('should build specific version download command', () => {
     const command = buildDownloadCommand({
       serverUrl: {
