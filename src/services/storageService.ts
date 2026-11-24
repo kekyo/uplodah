@@ -303,15 +303,6 @@ export const createStorageService = (
     }
   };
 
-  const directoryExists = async (targetPath: string): Promise<boolean> => {
-    try {
-      const stat = await fs.stat(targetPath);
-      return stat.isDirectory();
-    } catch {
-      return false;
-    }
-  };
-
   const parseUploadId = (uploadId: string): UploadIdParts | undefined => {
     const match = uploadId.match(uploadIdPattern);
     if (!match) {
@@ -1018,20 +1009,25 @@ export const createStorageService = (
     return version ? createStoredVersion(normalizedPath, version) : undefined;
   };
 
-  const createUploadId = async (
-    normalizedPath: NormalizedPublicPath
-  ): Promise<string> => {
+  const createVersionDirectory = async (
+    groupDirectoryPath: string
+  ): Promise<{ uploadId: string; versionDirectoryPath: string }> => {
     const baseId = dayjs().utc().format('YYYYMMDD_HHmmss_SSS');
-    const groupDirectoryPath = getGroupDirectoryPath(normalizedPath);
-    let uploadId = baseId;
-    let sequence = 1;
+    await fs.mkdir(groupDirectoryPath, { recursive: true });
 
-    while (await directoryExists(path.join(groupDirectoryPath, uploadId))) {
-      uploadId = `${baseId}_${sequence}`;
-      sequence += 1;
+    for (let sequence = 0; ; sequence++) {
+      const uploadId = sequence === 0 ? baseId : `${baseId}_${sequence}`;
+      const versionDirectoryPath = path.join(groupDirectoryPath, uploadId);
+      try {
+        // Creating the directory reserves this ID across all storage writers.
+        await fs.mkdir(versionDirectoryPath);
+        return { uploadId, versionDirectoryPath };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+          throw error;
+        }
+      }
     }
-
-    return uploadId;
   };
 
   return {
@@ -1155,19 +1151,24 @@ export const createStorageService = (
       );
 
       const groupDirectoryPath = getGroupDirectoryPath(normalizedPath);
-      const uploadId = await createUploadId(normalizedPath);
-      const versionDirectoryPath = path.join(groupDirectoryPath, uploadId);
       const normalizedMetadata = normalizeStoredUploadMetadata(metadata);
-
-      await fs.mkdir(versionDirectoryPath, { recursive: true });
-      await fs.writeFile(
-        path.join(versionDirectoryPath, 'metadata.json'),
-        JSON.stringify(normalizedMetadata)
+      const { uploadId, versionDirectoryPath } =
+        await createVersionDirectory(groupDirectoryPath);
+      const absoluteFilePath = path.join(
+        versionDirectoryPath,
+        normalizedPath.fileName
       );
-      await fs.writeFile(
-        path.join(versionDirectoryPath, normalizedPath.fileName),
-        fileContent
-      );
+      try {
+        await fs.writeFile(absoluteFilePath, fileContent);
+        // Readers recognize the version when its metadata is present.
+        await fs.writeFile(
+          path.join(versionDirectoryPath, 'metadata.json'),
+          JSON.stringify(normalizedMetadata)
+        );
+      } catch (error) {
+        await removeVersionFiles(absoluteFilePath);
+        throw error;
+      }
 
       const storedVersion = await resolveStoredVersion(
         normalizedPath.publicPath,
