@@ -7,6 +7,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'path';
 import { createReaderWriterLock } from 'async-primitives';
 import type { Logger, ServerConfig } from '../types.ts';
+import { maxLoginPasswordLength } from './requestLimits.ts';
 import { writePrivateFile } from '../utils/atomicFile.ts';
 import {
   generateSalt,
@@ -359,6 +360,19 @@ export const createUserService = (config: UserServiceConfig): UserService => {
     // Minimum length check (for backward compatibility)
     if (password.length < 4) {
       throw new Error('Password must be at least 4 characters long');
+    }
+
+    // JSON Schema counts code points, including characters outside the BMP.
+    if (
+      password.length > maxLoginPasswordLength * 2 ||
+      Array.from(password).length > maxLoginPasswordLength
+    ) {
+      throw Object.assign(
+        new Error(
+          `Password cannot exceed ${maxLoginPasswordLength} characters`
+        ),
+        { statusCode: 400 }
+      );
     }
 
     // Strength check (can be disabled via config)

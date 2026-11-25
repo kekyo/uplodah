@@ -6,6 +6,9 @@
 /** Maximum requests to each login route per client IP in one minute. */
 export const loginRateLimit = { max: 20 };
 
+/** Maximum Unicode code points in a password accepted by the login API. */
+export const maxLoginPasswordLength = 1024;
+
 /** Authentication forms are small, independent of the upload limit. */
 export const loginBodyLimit = 16 * 1024;
 

@@ -6,6 +6,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
   loginBodyLimit,
+  maxLoginPasswordLength,
   loginRateLimit,
 } from '../../services/requestLimits.ts';
 import type { User, UserService } from '../../services/userService.ts';
@@ -125,7 +126,7 @@ export const registerTotpRoutes = async (
                   'recovery',
                 ],
               },
-              password: { type: 'string', maxLength: 1024 },
+              password: { type: 'string', maxLength: maxLoginPasswordLength },
               code: { type: 'string', maxLength: 100 },
               recovery: { type: 'boolean' },
             },

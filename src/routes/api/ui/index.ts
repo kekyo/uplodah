@@ -505,6 +505,7 @@ export const registerUiRoutes = async (
   fastify.post(
     '/users',
     {
+      bodyLimit: loginBodyLimit,
       preHandler: [sessionOnlyAuth],
     },
     async (request: FastifyRequest, reply: FastifyReply) => {

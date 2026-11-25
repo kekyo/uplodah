@@ -8,6 +8,7 @@ import { join } from 'path';
 import { writeFile, mkdir } from 'fs/promises';
 import { readFile } from 'node:fs/promises';
 import * as prompts from '../src/utils/prompt.ts';
+import { PassThrough } from 'node:stream';
 import { runAuthInit } from '../src/authInit';
 import { createConsoleLogger } from '../src/logger';
 import { createTestDirectory, testGlobalLogLevel } from './helpers/test-helper';
@@ -79,6 +80,30 @@ describe('Auth Init', () => {
         password.mockRestore();
       }
     });
+  });
+
+  it('preserves a pasted Unicode password across terminal reads and backspace', async () => {
+    const terminal = Object.assign(new PassThrough(), {
+      isTTY: true,
+      setRawMode: vi.fn(),
+    });
+    const stdin = vi
+      .spyOn(process, 'stdin', 'get')
+      .mockReturnValue(terminal as unknown as typeof process.stdin);
+    const output = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation(() => true);
+    try {
+      const answer = prompts.promptPassword('Password');
+      const input = Buffer.from('鍵🌱😀\x7fabc\r', 'utf8');
+      terminal.write(input.subarray(0, 2));
+      terminal.write(input.subarray(2));
+      expect(await answer).toBe('鍵🌱abc');
+    } finally {
+      output.mockRestore();
+      stdin.mockRestore();
+      terminal.destroy();
+    }
   });
 
   describe('User creation flow', () => {

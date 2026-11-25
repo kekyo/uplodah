@@ -13,6 +13,7 @@ import rateLimit from '@fastify/rate-limit';
 import {
   loginRateLimit,
   loginBodyLimit,
+  maxLoginPasswordLength,
   publicReadRateLimit,
 } from './services/requestLimits.ts';
 import fastifyPassport from '@fastify/passport';
@@ -471,7 +472,11 @@ export const createFastifyInstance = async (
           required: ['username', 'password'],
           properties: {
             username: { type: 'string', minLength: 1, maxLength: 256 },
-            password: { type: 'string', minLength: 1, maxLength: 1024 },
+            password: {
+              type: 'string',
+              minLength: 1,
+              maxLength: maxLoginPasswordLength,
+            },
             rememberMe: { type: 'boolean' },
           },
         },

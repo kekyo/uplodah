@@ -393,3 +393,29 @@ it('retains a single legacy API password as default until it is revoked or repla
     users.destroy();
   }
 });
+
+it('keeps passwords within the login schema limit and leaves an account usable after an oversized reset', async () => {
+  const dir = await createTestDirectory('credentials', 'login password length');
+  const users = createUserService({
+    configDir: dir,
+    logger: { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() },
+    serverConfig: { port: 0, passwordStrengthCheck: false },
+  });
+  try {
+    await users.initialize();
+    const boundary = '🌱'.repeat(1024);
+    const original = await users.createUser({
+      username: 'alice',
+      role: 'admin',
+      password: boundary,
+    });
+    await expect(
+      users.updateUser('alice', { password: boundary + 'a' })
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect((await users.validateCredentials('alice', boundary))?.id).toBe(
+      original.id
+    );
+  } finally {
+    users.destroy();
+  }
+});
