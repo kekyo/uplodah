@@ -4,16 +4,14 @@
 // https://github.com/kekyo/uplodah
 
 import { readFile } from 'node:fs/promises';
-import {
-  isLegacyCredentialHash,
-  matchesLegacyCredential,
-} from '../utils/legacyCredentials.ts';
 import { join } from 'path';
 import { createReaderWriterLock } from 'async-primitives';
 import type { Logger, ServerConfig } from '../types.ts';
 import { writePrivateFile } from '../utils/atomicFile.ts';
 import {
   generateSalt,
+  isLegacyCredentialHash,
+  matchesLegacyCredential,
   hashPassword,
   verifyPassword,
   generateApiPassword,

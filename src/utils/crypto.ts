@@ -3,9 +3,14 @@
 // Under MIT.
 // https://github.com/kekyo/uplodah
 
-import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  scrypt,
+  timingSafeEqual,
+} from 'node:crypto';
 import { createSemaphore } from 'async-primitives';
-import { matchesLegacyCredential } from './legacyCredentials.ts';
 
 /**
  * Generates a random salt for password hashing
@@ -14,6 +19,41 @@ import { matchesLegacyCredential } from './legacyCredentials.ts';
  */
 export const generateSalt = (length: number = 16): string => {
   return randomBytes(length).toString('base64');
+};
+
+/**
+ * Identifies the canonical, untagged Base64 encoding used in older user stores.
+ * @param hash - Stored password or API password hash.
+ * @returns Whether the record contains a legacy 20-byte digest.
+ */
+export const isLegacyCredentialHash = (hash: string): boolean =>
+  typeof hash === 'string' &&
+  /^[A-Za-z0-9+/]{27}=$/.test(hash) &&
+  Buffer.from(hash, 'base64').toString('base64') === hash;
+
+/**
+ * Verifies an existing salted SHA-1 record during the migration period.
+ * @param password - Password or API password presented by its holder.
+ * @param storedHash - Stored legacy digest.
+ * @param salt - The original salt string, as written by older releases.
+ * @returns Whether this credential matches a supported legacy record.
+ * @remarks This compatibility reader never creates credentials. Its callers
+ * replace a verified record before returning authentication success.
+ */
+export const matchesLegacyCredential = (
+  password: string,
+  storedHash: string,
+  salt: string | undefined
+): boolean => {
+  if (
+    !isLegacyCredentialHash(storedHash) ||
+    typeof salt !== 'string' ||
+    salt.length === 0
+  )
+    return false;
+  const hash = createHash('sha1');
+  hash.update(password + salt);
+  return timingSafeEqual(hash.digest(), Buffer.from(storedHash, 'base64'));
 };
 
 // Parameters form part of the on-disk format. Do not accept work factors from disk.
@@ -86,20 +126,21 @@ export const verifyPassword = async (
     : matchesLegacyCredential(password, hash, salt));
 
 /**
- * Computes a lookup digest for a randomly generated API password.
+ * Derives an application-specific verifier for a randomly generated Basic API key.
+ * The issued 192-bit secret is the HMAC key. Only its tag for this fixed domain is stored.
  * @param token - API password supplied through HTTP Basic authentication.
- * @returns SHA-256 digest.
+ * @returns HMAC-SHA-256 verification tag.
  */
 export const apiPasswordDigest = (token: string): Buffer =>
-  createHash('sha256').update(token).digest();
+  createHmac('sha256', token).update('uplodah/basic-api/v1').digest();
 
 /**
  * Encodes a token digest for storage on issuance or migration.
  * @param digest - Digest of the presented API password.
- * @returns Versioned SHA-256 token hash.
+ * @returns Versioned HMAC-SHA-256 tag.
  */
 export const encodeApiPasswordDigest = (digest: Buffer): string =>
-  'sha256$' + digest.toString('hex');
+  'hmac-sha256$' + digest.toString('hex');
 
 /**
  * Checks a stored token record using a fixed-length comparison.
@@ -108,7 +149,7 @@ export const encodeApiPasswordDigest = (digest: Buffer): string =>
  * @returns Whether the API password matches.
  */
 export const matchesApiPassword = (hash: string, digest: Buffer): boolean =>
-  matchesDigest(hash, 'sha256$', digest);
+  matchesDigest(hash, 'hmac-sha256$', digest);
 
 /**
  * Generates a secure random API password

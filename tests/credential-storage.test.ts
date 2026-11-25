@@ -101,7 +101,7 @@ it('separates human passwords from random API passwords and rejects stale accoun
     const token = (await users.addApiPassword('alice', 'fixture'))!;
     expect(
       (await users.getUser('alice'))!.apiPasswords![0]!.passwordHash
-    ).toMatch(/^sha256\$/);
+    ).toMatch(/^hmac-sha256\$/);
     expect(
       (await users.validateApiPassword('alice', token.apiPassword))?.id
     ).toBe(alice.id);
@@ -259,7 +259,7 @@ it('updates only the matching legacy API password and keeps its value, identity 
     expect(saved.apiPasswords[1]).toMatchObject({
       label: original.label,
       createdAt: original.createdAt,
-      passwordHash: expect.stringMatching(/^sha256\$/),
+      passwordHash: expect.stringMatching(/^hmac-sha256\$/),
     });
     expect(saved.apiPasswords[1]).not.toHaveProperty('salt');
     expect(saved.passwordHash).toBe(user.passwordHash);
