@@ -29,3 +29,11 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Build server and UI and run all tests
         run: npm test
+
+      - name: Save drawer recordings and motion samples on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: drawer-motion
+          path: test-results/*/drawer-browser/close-right/recordings/
+          if-no-files-found: ignore
