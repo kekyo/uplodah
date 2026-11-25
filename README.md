@@ -987,6 +987,23 @@ Under MIT.
 
 ## History
 
+- 1.5.0:
+  - Login passwords now use scrypt hashes, and API passwords use HMAC-SHA-256 verification tags.
+    Passwords from 1.4.0 or earlier still work. The server replaces each legacy SHA-1 hash when it next verifies that password.
+  - The Web UI prompts users to change a migrated login password and shows the migration status of each API password.
+    Administrators can see how many passwords of each type still use the old format.
+    See [Updating older login and API passwords](#updating-older-login-and-api-passwords).
+  - Added `--password-reset <username>` to reset a login password while the server is stopped.
+    The reset signs the user out of existing sessions and preserves their two-step authentication settings and API passwords.
+  - Sign-in redirects now stay on the same origin.
+    Recreating an account with the same username invalidates pending two-step setup requests for the old account.
+  - Sign-in, uploads, configuration reads, and requests to create or download a ZIP archive now have per-IP rate limits.
+    Clients that exceed a limit receive HTTP 429 with a `Retry-After` header.
+  - Uploads and downloads now reject symbolic links below the storage root.
+    Fixed an error when concurrent requests removed the same expired file version.
+  - Bulk downloads now check the combined size of the files on disk against `maxDownloadSizeMb`.
+    If the server temporarily cannot open the ZIP, you can retry the same download link.
+  - GitHub Actions now builds and tests uplodah and runs CodeQL scans on TypeScript and workflow files.
 - 1.4.0:
   - Fixed version-specific download links that could return the wrong file. If a nested file's name matches the `uploadId` format, use its `latestDownloadUrl` or append `?version=latest` to saved links for its latest version.
   - Deleting a file version or letting it expire now preserves nested files stored under that version's directory.
