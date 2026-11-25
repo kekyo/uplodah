@@ -8,7 +8,6 @@ import fs from 'fs/promises';
 import path from 'path';
 import { startFastifyServer } from '../src/server';
 import { createConsoleLogger } from '../src/logger';
-import { ServerConfig } from '../src/types';
 import {
   createTestDirectory,
   getTestPort,

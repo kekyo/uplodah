@@ -3,12 +3,11 @@
 // Under MIT.
 // https://github.com/kekyo/uplodah
 
-import { createReadStream } from 'fs';
-import { stat } from 'fs/promises';
+import { openStorageFile } from './storagePaths.ts';
 import type { FastifyReply } from 'fastify';
-import { extname } from 'path';
+import { extname } from 'node:path';
 import type { Logger } from '../types.ts';
-import { createDeferred, type ReaderWriterLock } from 'async-primitives';
+import type { ReaderWriterLock } from 'async-primitives';
 
 /**
  * Options for file streaming
@@ -37,138 +36,58 @@ export interface StreamFileOptions {
  *
  * @param logger - Logger instance
  * @param locker - Reader lock for file streaming
- * @param filePath - Absolute path to the file to stream
+ * @param root - Trusted directory containing this class of files
+ * @param filePath - Path relative to that directory
  * @param reply - Fastify reply object
  * @param options - Optional headers and configuration
  * @param signal - Optional AbortSignal for cancellation support
- * @returns Promise that resolves to the FastifyReply
+ * @returns Resolves after streaming or sending an error response
  */
 export const streamFile = async (
   logger: Logger,
   locker: ReaderWriterLock,
+  root: string,
   filePath: string,
   reply: FastifyReply,
-  options: StreamFileOptions = {},
-  signal?: AbortSignal
+  options: StreamFileOptions,
+  signal: AbortSignal | undefined
 ): Promise<void> => {
   // Acquire reader lock with signal support
   const handler = await locker.readLock(signal);
   try {
-    // Check if file exists and get its stats
-    const stats = await stat(filePath);
-
-    if (!stats.isFile()) {
-      return reply.status(404).send({ error: 'Not a file' });
-    }
-
-    // Determine Content-Type (use provided type or auto-detect from extension)
-    const contentType =
-      options.contentType || getMimeTypeFromExtension(extname(filePath));
-
-    // Set response headers
-    reply.header('Content-Type', contentType);
-    reply.header('Content-Length', stats.size);
-
-    // Set optional headers if provided
-    if (options.contentDisposition) {
-      reply.header('Content-Disposition', options.contentDisposition);
-    }
-
-    if (options.cacheControl) {
-      reply.header('Cache-Control', options.cacheControl);
-    }
-
-    // Add stream event logging for debugging
-    const streamId = `stream-${Date.now()}`;
-    const shortPath = filePath.split('/').slice(-3).join('/');
-    logger.debug(`[${streamId}] Creating stream for ${shortPath}`);
-
-    // Also log when reply is sent
-    logger.debug(`[${streamId}] Sending stream to reply at ${Date.now()}`);
-
-    // Create and send file stream
-    const deferred = createDeferred<void>();
-    const stream = createReadStream(filePath);
-
-    // Prevent multiple resolutions
-    let resolved = false;
-    const resolveOnce = () => {
-      if (!resolved) {
-        resolved = true;
-        deferred.resolve();
-      }
-    };
-
-    // Handle abort signal if provided
-    if (signal) {
-      const abortHandler = () => {
-        logger.info(
-          `[${streamId}] Stream aborted by client disconnect for ${shortPath}`
-        );
-        stream.destroy();
-        resolveOnce();
-      };
-
-      // Check if already aborted
-      if (signal.aborted) {
-        abortHandler();
-        return;
-      }
-
-      // Listen for abort event
-      signal.addEventListener('abort', abortHandler);
-    }
-
-    stream.on('open', () => {
-      logger.debug(`[${streamId}] Event: open at ${Date.now()}`);
-    });
-
-    stream.on('data', (chunk) => {
-      logger.debug(
-        `[${streamId}] Event: data (${chunk.length} bytes) at ${Date.now()}`
-      );
-    });
-
-    // Resolve on 'end' event (stream read complete)
-    stream.on('end', () => {
-      logger.debug(`[${streamId}] Event: end (read complete) at ${Date.now()}`);
-      //resolveOnce(); // Resolve here to avoid waiting for close event
-    });
-
-    stream.on('finish', () => {
-      logger.debug(`[${streamId}] Event: finish at ${Date.now()}`);
-    });
-
-    // Also resolve on 'close' event as a fallback
-    stream.on('close', () => {
-      logger.debug(`[${streamId}] Event: close at ${Date.now()}`);
-      resolveOnce();
-    });
-
-    // Handle stream errors
-    stream.on('error', (error) => {
-      logger.debug(`[${streamId}] Event: error at ${Date.now()}`);
-      deferred.reject(error);
-    });
-
+    const { file, stats } = await openStorageFile(root, filePath);
     try {
-      await reply.send(stream);
-      await deferred.promise;
+      // Determine Content-Type and stream from the descriptor used for Content-Length.
+      reply.header(
+        'Content-Type',
+        options.contentType ?? getMimeTypeFromExtension(extname(filePath))
+      );
+      reply.header('Content-Length', stats.size);
+      if (options.contentDisposition)
+        reply.header('Content-Disposition', options.contentDisposition);
+      if (options.cacheControl)
+        reply.header('Cache-Control', options.cacheControl);
+      logger.debug(`Streaming ${filePath}`);
+      const stream = file.createReadStream({ signal, autoClose: false });
+      try {
+        await reply.send(stream);
+      } finally {
+        stream.destroy();
+      }
+      return;
     } finally {
-      stream.destroy(); // Use destroy instead of close for more reliable cleanup
+      await file.close();
     }
-  } catch (error: any) {
-    // Handle file not found error
-    if (error.code === 'ENOENT') {
-      return reply.status(404).send({ error: 'File not found' });
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (['ENOENT', 'ENOTDIR', 'ELOOP'].includes(code ?? '')) {
+      await reply.status(404).send({ error: 'File not found' });
+      return;
     }
-
-    // Handle permission errors
-    if (error.code === 'EACCES') {
-      return reply.status(403).send({ error: 'Permission denied' });
+    if (code === 'EACCES') {
+      await reply.status(403).send({ error: 'Permission denied' });
+      return;
     }
-
-    // Handle other errors
     throw error;
   } finally {
     // Release reader lock

@@ -8,6 +8,7 @@ import { Tooltip } from '@mui/material';
 import { TypedMessage, useTypedMessage } from 'typed-message';
 import { useSnackbar } from 'notistack';
 import {
+  Alert,
   AppBar,
   Toolbar,
   Typography,
@@ -65,6 +66,8 @@ export interface ServerConfig {
     username: string;
     role: string;
     authenticated: boolean;
+    /** Show the reminder until the owner chooses a new password. */
+    passwordChangeRecommended?: true;
   } | null;
   availableLanguages?: string[];
   storageDirectories?: string[];
@@ -213,8 +216,9 @@ const AppContent = ({
     setApiPasswordDrawerOpen(false);
   };
 
-  const handleClosePasswordChangeDrawer = () => {
+  const handleClosePasswordChangeDrawer = async (passwordChanged: boolean) => {
     setPasswordChangeDrawerOpen(false);
+    if (passwordChanged) await fetchServerConfig();
   };
 
   const handleLoginSuccess = (username: string) => {
@@ -555,6 +559,23 @@ const AppContent = ({
               : undefined,
         }}
       >
+        {canManagePassword() &&
+          serverConfig?.currentUser?.passwordChangeRecommended && (
+            <Alert
+              severity="info"
+              sx={{ mb: 2 }}
+              action={
+                <Button
+                  color="inherit"
+                  onClick={() => setPasswordChangeDrawerOpen(true)}
+                >
+                  <TypedMessage message={messages.CHANGE_PASSWORD} />
+                </Button>
+              }
+            >
+              <TypedMessage message={messages.PASSWORD_MIGRATION_NOTICE} />
+            </Alert>
+          )}
         <PackageList ref={packageListRef} serverConfig={serverConfig} />
       </Container>
 

@@ -467,6 +467,34 @@ export const messages = {
     fallback: "Delete User" 
   } as SimpleMessageItem,
   /**
+   * PASSWORD_MIGRATION_NOTICE ==> "Your password was previously stored in the old format. You can continue using uplodah. We recommend choosing a new password."
+   */
+  PASSWORD_MIGRATION_NOTICE: { 
+    key: "PASSWORD_MIGRATION_NOTICE", 
+    fallback: "Your password was previously stored in the old format. You can continue using uplodah. We recommend choosing a new password." 
+  } as SimpleMessageItem,
+  /**
+   * API_PASSWORD_MIGRATION_PENDING ==> "This API password is still stored in the old format. Its next use will update it automatically. Delete it if you no longer use it."
+   */
+  API_PASSWORD_MIGRATION_PENDING: { 
+    key: "API_PASSWORD_MIGRATION_PENDING", 
+    fallback: "This API password is still stored in the old format. Its next use will update it automatically. Delete it if you no longer use it." 
+  } as SimpleMessageItem,
+  /**
+   * API_PASSWORD_MIGRATION_UPGRADED ==> "This API password has been upgraded. Its value still works. Verify a replacement before deleting the old password."
+   */
+  API_PASSWORD_MIGRATION_UPGRADED: { 
+    key: "API_PASSWORD_MIGRATION_UPGRADED", 
+    fallback: "This API password has been upgraded. Its value still works. Verify a replacement before deleting the old password." 
+  } as SimpleMessageItem,
+  /**
+   * CREDENTIAL_MIGRATION_COUNTS ==> "Passwords awaiting migration ({passwords:number}) · API passwords awaiting migration ({apiPasswords:number})"
+   */
+  CREDENTIAL_MIGRATION_COUNTS: { 
+    key: "CREDENTIAL_MIGRATION_COUNTS", 
+    fallback: "Passwords awaiting migration ({passwords:number}) · API passwords awaiting migration ({apiPasswords:number})" 
+  } as MessageItem<{ passwords: number; apiPasswords: number }>,
+  /**
    * CHANGE_PASSWORD ==> "Change Password"
    */
   CHANGE_PASSWORD: { 

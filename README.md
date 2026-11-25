@@ -615,8 +615,13 @@ Configure password requirements in `config.json`:
 }
 ```
 
-`uplodah` stores both login passwords and API passwords as salted hashes, so plaintext passwords are not saved on disk.
-However, if you do not use HTTPS (TLS), the `Authorization` header contains the plaintext API password, which makes it vulnerable to sniffing.
+### Password storage and migration
+
+uplodah stores login passwords with scrypt and a separate random salt for each password. For generated API passwords, it stores an HMAC-SHA-256 verification tag.
+
+If you upgraded from an older release, see [Updating older login and API passwords](#updating-older-login-and-api-passwords).
+
+If you do not use HTTPS (TLS), the `Authorization` header contains the plaintext API password, which makes it vulnerable to sniffing.
 If the server is exposed beyond a trusted local network, protect communications with HTTPS.
 
 ---
@@ -906,6 +911,29 @@ Without QEMU, you can only build for your native architecture.
 
 ## Notes
 
+### Updating older login and API passwords
+
+Login and API passwords from uplodah 1.4.0 or earlier still work after you upgrade the server.
+We plan to end support for the old salted SHA-1 format in a future release and will announce the cutoff in advance.
+
+- When you enter the correct login password in the Web UI, uplodah replaces its stored hash with a scrypt hash.
+  The “Change Password” reminder stays visible until you choose a different password. You can keep using uplodah in the meantime.
+- The next time you use an API password successfully with HTTP Basic authentication, uplodah updates the stored value for that password to HMAC-SHA-256. Your `curl` commands and CI jobs can keep using the same password.
+  Open “API Password” in the user menu to check each password's migration status and delete any you no longer use.
+  If you rotate a password, verify that your client can authenticate with the new one before deleting the old one.
+- Administrators can open “Reset Password” in the user menu to see how many login passwords and how many API passwords still use the old format.
+  They can also reset passwords there for users who have not signed in since the upgrade.
+
+If you forget your administrator password, stop the server and run the following command with the same configuration you use to start it.
+Replace `alice` with the username of the account to recover.
+
+```bash
+uplodah --config-file ./config.json --password-reset alice
+```
+
+Enter the new login password twice, then restart the server. The reset invalidates that user's existing sessions.
+The account keeps its ID, role, two-step authentication settings, and API passwords.
+
 ### Health Check
 
 `/health` returns a response like this:
@@ -935,6 +963,7 @@ All settings are resolved with the priority **CLI > environment variable > confi
 | N/A                             | `UPLODAH_SESSION_SECRET`             | `sessionSecret`         | Secret used for session cookies                          | string                                     | auto-generated                 |
 | N/A                             | `UPLODAH_TOTP_KEY_FILE`              | `totpKeyFile`           | Encryption key file for TOTP setup keys                  | File path                                  | totp.key alongside config.json |
 | `--totp-reset <username>`       | N/A                                  | N/A                     | Reset a user's TOTP while the server is stopped          | Username                                   | N/A                            |
+| `--password-reset <username>`   | N/A                                  | N/A                     | Reset a login password with the server stopped           | Username                                   | N/A                            |
 | N/A                             | `UPLODAH_PASSWORD_MIN_SCORE`         | `passwordMinScore`      | Minimum password strength score                          | 0-4                                        | `2`                            |
 | N/A                             | `UPLODAH_PASSWORD_STRENGTH_CHECK`    | `passwordStrengthCheck` | Enable password strength checking                        | `true`, `false`                            | `true`                         |
 | `--max-upload-size-mb <size>`   | `UPLODAH_MAX_UPLOAD_SIZE_MB`         | `maxUploadSizeMb`       | Maximum upload size in MB                                | 1-10000                                    | `100`                          |
@@ -948,7 +977,7 @@ All settings are resolved with the priority **CLI > environment variable > confi
 
 ## Other
 
-This server project is a sister project of [nuget-server](https://github.com/kekyo/nuget-server/) and [uplodah](https://github.com/kekyo/uplodah/).
+This server project is a sister project of [nuget-server](https://github.com/kekyo/nuget-server/) and [npmjs-server](https://github.com/kekyo/npmjs-server/).
 
 ## License
 
@@ -958,6 +987,23 @@ Under MIT.
 
 ## History
 
+- 1.5.0:
+  - Login passwords now use scrypt hashes, and API passwords use HMAC-SHA-256 verification tags.
+    Passwords from 1.4.0 or earlier still work. The server replaces each legacy SHA-1 hash when it next verifies that password.
+  - The Web UI prompts users to change a migrated login password and shows the migration status of each API password.
+    Administrators can see how many passwords of each type still use the old format.
+    See [Updating older login and API passwords](#updating-older-login-and-api-passwords).
+  - Added `--password-reset <username>` to reset a login password while the server is stopped.
+    The reset signs the user out of existing sessions and preserves their two-step authentication settings and API passwords.
+  - Sign-in redirects now stay on the same origin.
+    Recreating an account with the same username invalidates pending two-step setup requests for the old account.
+  - Sign-in, uploads, configuration reads, and requests to create or download a ZIP archive now have per-IP rate limits.
+    Clients that exceed a limit receive HTTP 429 with a `Retry-After` header.
+  - Uploads and downloads now reject symbolic links below the storage root.
+    Fixed an error when concurrent requests removed the same expired file version.
+  - Bulk downloads now check the combined size of the files on disk against `maxDownloadSizeMb`.
+    If the server temporarily cannot open the ZIP, you can retry the same download link.
+  - GitHub Actions now builds and tests uplodah and runs CodeQL scans on TypeScript and workflow files.
 - 1.4.0:
   - Fixed version-specific download links that could return the wrong file. If a nested file's name matches the `uploadId` format, use its `latestDownloadUrl` or append `?version=latest` to saved links for its latest version.
   - Deleting a file version or letting it expire now preserves nested files stored under that version's directory.

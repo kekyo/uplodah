@@ -3,6 +3,7 @@
 // Under MIT.
 // https://github.com/kekyo/uplodah
 
+import { transferRateLimit } from '../../../services/requestLimits.ts';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Logger } from '../../../types.ts';
 import type { AuthService } from '../../../services/authService.ts';
@@ -72,7 +73,7 @@ export const registerUploadRoutes = async (
   const authHandler = authService.isAuthRequired('publish')
     ? createConditionalHybridAuthMiddleware(authConfig)
     : null;
-  const authPreHandler = authHandler
+  const authorizeUpload = authHandler
     ? ([
         authHandler,
         async (request: FastifyRequest, reply: FastifyReply) => {
@@ -90,7 +91,8 @@ export const registerUploadRoutes = async (
   fastify.route({
     method: ['POST', 'PUT'],
     url: '/*',
-    preHandler: authPreHandler,
+    config: { rateLimit: transferRateLimit },
+    preParsing: authorizeUpload,
     handler: async (request: FastifyRequest, reply: FastifyReply) => {
       const publicPath = (request.params as { '*': string })['*'];
       if (!publicPath) {

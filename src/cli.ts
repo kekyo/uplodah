@@ -18,7 +18,7 @@ import {
   getBaseUrlFromEnv,
   getTrustedProxiesFromEnv,
 } from './utils/urlResolver';
-import { runAuthInit } from './authInit';
+import { runAuthInit, runPasswordReset } from './authInit.ts';
 import { runTotpReset } from './totpReset';
 import { loadConfigFromPath } from './utils/configLoader';
 import { dirname } from 'path';
@@ -170,6 +170,12 @@ program
       '--totp-reset <username>',
       "reset a user's two-factor authentication (stop the server first)"
     ).conflicts('authInit')
+  )
+  .addOption(
+    new Option(
+      '--password-reset <username>',
+      "reset a user's password (stop the server first)"
+    ).conflicts(['authInit', 'totpReset'])
   )
   .action(async (options) => {
     // Determine config file path
@@ -332,6 +338,16 @@ program
       maxDownloadSizeMb,
       storage: configFile.storage,
     };
+
+    if (options.passwordReset) {
+      try {
+        await runPasswordReset(config, logger, options.passwordReset);
+      } catch (error) {
+        logger.error(`Failed to reset password: ${error}`);
+        process.exitCode = 1;
+      }
+      return;
+    }
 
     // Handle offline second-factor recovery
     if (options.totpReset) {

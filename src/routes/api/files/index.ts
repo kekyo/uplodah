@@ -5,9 +5,12 @@
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { ReaderWriterLock } from 'async-primitives';
+import {
+  publicReadRateLimit,
+  transferRateLimit,
+} from '../../../services/requestLimits.ts';
 import { randomUUID } from 'crypto';
-import { createReadStream } from 'fs';
-import { mkdtemp, rm, stat } from 'fs/promises';
+import { mkdtemp, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
 import dayjs, { type Dayjs } from 'dayjs';
@@ -40,6 +43,8 @@ dayjs.extend(utc);
  */
 interface FilesRoutesConfig {
   storageService: StorageService;
+  /** Operator-configured root of the uploaded file store. */
+  storageRoot: string;
   authService: AuthService;
   authConfig: FastifyAuthConfig;
   logger: Logger;
@@ -168,14 +173,21 @@ const sanitizePortableFileNameComponent = (
   value: string,
   fallbackValue: string
 ): string => {
-  const sanitizedValue = value
+  const normalized = value
     .normalize('NFKC')
     .replace(/[^\p{L}\p{N}._-]+/gu, '-')
-    .replace(/-+/g, '-')
-    .replace(/^[.-]+|[.-]+$/g, '');
-
+    .replace(/-+/g, '-');
+  const start = normalized.search(/[^.-]/);
+  let end = normalized.length;
+  while (
+    end > 0 &&
+    (normalized[end - 1] === '.' || normalized[end - 1] === '-')
+  )
+    end--;
   const fileName =
-    sanitizedValue.length > 0 ? sanitizedValue.slice(0, 120) : fallbackValue;
+    start < 0
+      ? fallbackValue
+      : normalized.slice(start, Math.min(end, start + 120));
   const reservedNameTarget = fileName.split('.')[0]?.toUpperCase();
   return reservedNameTarget && reservedWindowsFileNames.has(reservedNameTarget)
     ? `_${fileName}`
@@ -350,6 +362,7 @@ export const registerFilesRoutes = async (
 ) => {
   const {
     storageService,
+    storageRoot,
     authService,
     authConfig,
     logger,
@@ -390,7 +403,14 @@ export const registerFilesRoutes = async (
     request.status = 'processing';
     const task = (async () => {
       try {
-        await createZipArchiveFile(logger, locker, entries, request.outputPath);
+        await createZipArchiveFile(
+          logger,
+          locker,
+          storageRoot,
+          entries,
+          maxDownloadSizeBytes,
+          request.outputPath
+        );
         request.status = 'completed';
         request.expiresAt = dayjs().valueOf() + archiveRequestTtlMs;
       } catch (error) {
@@ -436,7 +456,8 @@ export const registerFilesRoutes = async (
   fastify.post(
     '/archive-requests',
     {
-      preHandler: authPreHandler,
+      config: { rateLimit: transferRateLimit },
+      preParsing: authPreHandler,
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const body = request.body as Partial<CreateFileArchiveRequestBody>;
@@ -471,7 +492,7 @@ export const registerFilesRoutes = async (
               .send({ error: 'Selected files exceed maximum download size' });
           }
           entries.push({
-            absoluteFilePath: version.absoluteFilePath,
+            filePath: path.relative(storageRoot, version.absoluteFilePath),
             archivePath: createArchiveEntryPath({
               publicPath: version.publicPath,
               uploadId: version.uploadId,
@@ -536,6 +557,7 @@ export const registerFilesRoutes = async (
   fastify.get(
     archiveRequestRoute,
     {
+      config: { rateLimit: publicReadRateLimit },
       preHandler: authPreHandler,
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
@@ -565,46 +587,29 @@ export const registerFilesRoutes = async (
       }
 
       try {
-        const archiveStats = await stat(archiveRequest.outputPath);
-        if (!archiveStats.isFile()) {
-          archiveRequests.delete(requestId);
-          await cleanupArchiveRequestFiles(archiveRequest, logger);
-          return reply.status(404).send({ error: 'Archive request not found' });
-        }
-
-        let cleanupStarted = false;
-        const cleanupAfterSend = () => {
-          if (cleanupStarted) {
-            return;
-          }
-          cleanupStarted = true;
-          archiveRequests.delete(requestId);
-          void cleanupArchiveRequestFiles(archiveRequest, logger);
-        };
-
-        const archiveStream = createReadStream(archiveRequest.outputPath);
-        archiveStream.once('error', cleanupAfterSend);
-        reply.raw.once('finish', cleanupAfterSend);
-        reply.raw.once('close', cleanupAfterSend);
-
-        reply.header('Content-Type', 'application/zip');
-        reply.header('Content-Length', archiveStats.size);
-        reply.header(
-          'Content-Disposition',
-          `attachment; filename*=UTF-8''${encodeURIComponent(
-            createArchiveFileName(realm, archiveRequest.archiveFileName)
-          )}`
+        await streamFile(
+          logger,
+          locker,
+          archiveRequest.tempDirectoryPath,
+          path.basename(archiveRequest.outputPath),
+          reply,
+          {
+            contentType: 'application/zip',
+            contentDisposition: `attachment; filename*=UTF-8''${encodeURIComponent(createArchiveFileName(realm, archiveRequest.archiveFileName))}`,
+          },
+          request.abortSignal
         );
-
-        return reply.send(archiveStream);
-      } catch (error: any) {
-        if (error.code === 'ENOENT') {
-          archiveRequests.delete(requestId);
-          await cleanupArchiveRequestFiles(archiveRequest, logger);
-          return reply.status(404).send({ error: 'Archive request not found' });
-        }
+      } catch (error) {
         logger.error(`Failed to serve archive ${requestId}: ${error}`);
         return reply.status(500).send({ error: 'Internal server error' });
+      } finally {
+        if (
+          reply.statusCode === 404 ||
+          (reply.statusCode === 200 && reply.raw.headersSent)
+        ) {
+          archiveRequests.delete(requestId);
+          await cleanupArchiveRequestFiles(archiveRequest, logger);
+        }
       }
     }
   );
@@ -629,7 +634,8 @@ export const registerFilesRoutes = async (
         await streamFile(
           logger,
           locker,
-          resolvedVersion.absoluteFilePath,
+          storageRoot,
+          path.relative(storageRoot, resolvedVersion.absoluteFilePath),
           reply,
           {
             contentDisposition: `attachment; filename*=UTF-8''${encodeURIComponent(

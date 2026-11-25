@@ -41,12 +41,7 @@ export const runTotpReset = async (
       );
       return;
     }
-    await users.mutateTotp(
-      username,
-      user.authVersion ?? 0,
-      () => undefined,
-      true
-    );
+    await users.mutateTotp(user, () => undefined, true);
     logger.warn(
       `Two-factor authentication reset for ${username}. Register a new authenticator after signing in.`
     );

@@ -38,6 +38,10 @@ import {
   resolveExamplePublicPath,
   shouldShowAuthenticatedApiExamples,
 } from '../utils/commandBuilder';
+import type {
+  ApiPasswordAddResponse,
+  ApiPasswordListResponse,
+} from '../../services/userService.ts';
 import { apiFetch } from '../utils/apiClient';
 import { TypedMessage, useTypedMessage } from 'typed-message';
 import { useSnackbar } from 'notistack';
@@ -60,21 +64,6 @@ interface ApiPasswordDrawerProps {
   } | null;
 }
 
-interface ApiPassword {
-  label: string;
-  createdAt: string;
-}
-
-interface ApiPasswordListResponse {
-  apiPasswords: ApiPassword[];
-}
-
-interface ApiPasswordAddResponse {
-  label: string;
-  apiPassword: string;
-  createdAt: string;
-}
-
 const ApiPasswordDrawer = ({
   open,
   onClose,
@@ -83,7 +72,9 @@ const ApiPasswordDrawer = ({
   const getMessage = useTypedMessage();
   const { enqueueSnackbar } = useSnackbar();
   const [loading, setLoading] = useState(false);
-  const [apiPasswords, setApiPasswords] = useState<ApiPassword[]>([]);
+  const [apiPasswords, setApiPasswords] = useState<
+    ApiPasswordListResponse['apiPasswords']
+  >([]);
   const [newLabel, setNewLabel] = useState('');
   const [newApiPassword, setNewApiPassword] =
     useState<ApiPasswordAddResponse | null>(null);
@@ -559,6 +550,17 @@ const ApiPasswordDrawer = ({
                         >
                           {apiPwd.label}
                         </Typography>
+                        {apiPwd.migrationStatus && (
+                          <Typography variant="caption" color="text.secondary">
+                            <TypedMessage
+                              message={
+                                apiPwd.migrationStatus === 'pending'
+                                  ? messages.API_PASSWORD_MIGRATION_PENDING
+                                  : messages.API_PASSWORD_MIGRATION_UPGRADED
+                              }
+                            />
+                          </Typography>
+                        )}
                       </TableCell>
                       <TableCell>
                         <Typography variant="caption" color="text.secondary">

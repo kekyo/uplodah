@@ -5,7 +5,15 @@
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { Logger, StorageDirectoryDescriptor } from '../../../types.ts';
-import type { UserService } from '../../../services/userService.ts';
+import {
+  countLegacyCredentials,
+  type User,
+  type UserService,
+} from '../../../services/userService.ts';
+import {
+  loginBodyLimit,
+  publicReadRateLimit,
+} from '../../../services/requestLimits.ts';
 import type { SessionService } from '../../../services/sessionService.ts';
 import type { AuthService } from '../../../services/authService.ts';
 import type { AuthenticatedFastifyRequest } from '../../../middleware/fastifyAuth.ts';
@@ -72,6 +80,8 @@ interface ConfigResponse {
     username: string;
     role: string;
     authenticated: boolean;
+    /** The account holder should change a password verified in the legacy format. */
+    passwordChangeRecommended?: true;
   } | null;
   storageDirectories: string[];
   storageDirectoryDetails: StorageDirectoryDescriptor[];
@@ -121,7 +131,9 @@ interface UserManagementRequest {
 /**
  * User list response
  */
-interface UserListResponse {
+export interface UserListResponse {
+  /** Number of login passwords and API passwords still stored in the legacy format. */
+  credentialMigration: ReturnType<typeof countLegacyCredentials>;
   users: Array<{
     id: string;
     username: string;
@@ -177,6 +189,10 @@ interface PasswordChangeResponse {
   message: string;
 }
 
+type SessionAuthenticatedRequest = FastifyRequest & {
+  user: Pick<User, 'id' | 'username' | 'authVersion'> & { role: string };
+};
+
 /**
  * Session-only authentication middleware
  */
@@ -199,8 +215,9 @@ const createSessionOnlyAuthMiddleware = (
     }
 
     // Add user info to request
-    (request as any).user = {
+    (request as SessionAuthenticatedRequest).user = {
       id: session.userId,
+      authVersion: session.authVersion,
       username: session.username,
       role: session.role,
     };
@@ -266,6 +283,7 @@ export const registerUiRoutes = async (
           username: session.username,
           role: session.role,
           authenticated: true,
+          passwordChangeRecommended: session.passwordChangeRecommended,
         };
       }
     }
@@ -302,6 +320,7 @@ export const registerUiRoutes = async (
   // POST /api/ui/config - Application configuration (public endpoint)
   fastify.post(
     '/config',
+    { config: { rateLimit: publicReadRateLimit } },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         let currentUser = null;
@@ -486,6 +505,7 @@ export const registerUiRoutes = async (
   fastify.post(
     '/users',
     {
+      bodyLimit: loginBodyLimit,
       preHandler: [sessionOnlyAuth],
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
@@ -502,6 +522,7 @@ export const registerUiRoutes = async (
             const users = await userService.getAllUsers();
 
             const response: UserListResponse = {
+              credentialMigration: countLegacyCredentials(users),
               users: users.map((user) => ({
                 id: user.id,
                 username: user.username,
@@ -628,14 +649,15 @@ export const registerUiRoutes = async (
       preHandler: [sessionOnlyAuth],
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const authRequest = request as AuthenticatedFastifyRequest;
+      const authRequest = request as SessionAuthenticatedRequest;
       try {
         logger.info(
           `[DEPRECATED] Regenerating API password for user: ${authRequest.user?.username}`
         );
 
         const result = await userService.regenerateApiPassword(
-          authRequest.user?.username || ''
+          authRequest.user.username,
+          authRequest.user
         );
         if (!result) {
           return reply.status(404).send({ error: 'User not found' });
@@ -668,7 +690,7 @@ export const registerUiRoutes = async (
       preHandler: [sessionOnlyAuth],
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const authRequest = request as AuthenticatedFastifyRequest;
+      const authRequest = request as SessionAuthenticatedRequest;
       try {
         const body = request.body as {
           action: 'list' | 'add' | 'delete';
@@ -706,7 +728,8 @@ export const registerUiRoutes = async (
             try {
               const result = await userService.addApiPassword(
                 username,
-                body.label
+                body.label,
+                authRequest.user
               );
               if (!result) {
                 return reply.status(404).send({ error: 'User not found' });
@@ -735,7 +758,8 @@ export const registerUiRoutes = async (
 
             const result = await userService.deleteApiPassword(
               username,
-              body.label
+              body.label,
+              authRequest.user
             );
 
             if (!result.success) {
@@ -768,6 +792,7 @@ export const registerUiRoutes = async (
   fastify.post(
     '/password',
     {
+      bodyLimit: loginBodyLimit,
       preHandler: [sessionOnlyAuth],
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
@@ -825,7 +850,8 @@ export const registerUiRoutes = async (
             authRequest.user?.username || '',
             {
               password: body.newPassword,
-            }
+            },
+            user
           );
           if (!updated) {
             return reply.status(404).send({ error: 'User not found' });

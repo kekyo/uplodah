@@ -2070,8 +2070,8 @@ const PackageList = forwardRef<PackageListRef, PackageListProps>(
           throw new Error(getMessage(messages.UNKNOWN_ERROR));
         }
 
-        let downloadPath: string | undefined;
-        while (!downloadPath) {
+        let downloadPath: string;
+        for (;;) {
           await waitForArchiveStatusPoll();
 
           const statusResponse = await apiFetch(data.statusPath, {

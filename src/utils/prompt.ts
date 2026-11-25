@@ -4,6 +4,7 @@
 // https://github.com/kekyo/uplodah
 
 import * as readline from 'readline';
+import { StringDecoder } from 'node:string_decoder';
 
 /**
  * Prompts for user input with optional default value
@@ -56,15 +57,14 @@ export const promptPassword = (prompt: string): Promise<string> => {
     process.stdin.setRawMode(true);
     process.stdin.resume();
 
-    let password = '';
+    const password: string[] = [];
+    const decoder = new StringDecoder('utf8');
 
     const onData = (chunk: Buffer) => {
-      const str = chunk.toString('utf8');
+      const str = decoder.write(chunk);
 
       // Handle multiple characters (e.g., from paste)
-      for (let i = 0; i < str.length; i++) {
-        const char = str[i];
-
+      for (const char of str) {
         switch (char) {
           case '\u0003': // Ctrl+C
             process.stdout.write('\n');
@@ -80,21 +80,21 @@ export const promptPassword = (prompt: string): Promise<string> => {
             process.stdin.setRawMode(false);
             process.stdin.pause();
             process.stdin.removeListener('data', onData);
-            resolve(password);
+            resolve(password.join(''));
             return;
 
           case '\u007F': // Backspace (DEL)
           case '\b': // Backspace (BS)
             if (password.length > 0) {
-              password = password.slice(0, -1);
+              password.pop();
               process.stdout.write('\b \b'); // Move back, write space, move back again
             }
             break;
 
           default:
             // Only accept printable characters
-            if (char && char.charCodeAt(0) >= 32 && char.charCodeAt(0) < 127) {
-              password += char;
+            if (!/[\u0000-\u001f\u007f-\u009f]/u.test(char)) {
+              password.push(char);
               process.stdout.write('*');
             }
             break;
