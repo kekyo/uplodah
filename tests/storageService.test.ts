@@ -38,6 +38,32 @@ describe('storageService', () => {
       logger
     );
 
+  it('keeps versions with linked payloads out of downloads and archives', async () => {
+    const service = createService();
+    await service.initialize();
+    const version = await service.storeFile('notes.txt', Buffer.from('notes'));
+    const stored = (await service.getFileVersion(
+      'notes.txt',
+      version.uploadId
+    ))!;
+    await fs.rename(stored.absoluteFilePath, stored.absoluteFilePath + '.copy');
+    await fs.symlink('notes.txt.copy', stored.absoluteFilePath);
+    expect(await service.getLatestFileVersion('notes.txt')).toBeUndefined();
+    expect(
+      await service.getFileVersion('notes.txt', version.uploadId)
+    ).toBeUndefined();
+  });
+
+  it('refuses uploads through directory aliases within storage', async () => {
+    const service = createService();
+    await service.initialize();
+    await service.storeFile('notes.txt', Buffer.from('notes'));
+    await fs.symlink('notes.txt', path.join(testDir, 'alias.txt'), 'dir');
+    await expect(
+      service.storeFile('alias.txt', Buffer.from('alias'))
+    ).rejects.toThrow();
+  });
+
   it('should allow root uploads without storage rules and reject subdirectories', async () => {
     const service = createService();
     await service.initialize();

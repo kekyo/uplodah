@@ -3,6 +3,11 @@
 // Under MIT.
 // https://github.com/kekyo/uplodah
 
+import {
+  openStorageFile,
+  prepareStorageDirectory,
+  resolveStoragePath,
+} from '../utils/storagePaths.ts';
 import fs from 'fs/promises';
 import type { Dirent } from 'fs';
 import path from 'path';
@@ -294,7 +299,11 @@ export const createStorageService = (
 
   const safeReadDirectory = async (targetPath: string): Promise<Dirent[]> => {
     try {
-      return await fs.readdir(targetPath, { withFileTypes: true });
+      const directory = await resolveStoragePath(
+        storageRoot,
+        path.relative(storageRoot, targetPath)
+      );
+      return await fs.readdir(directory, { withFileTypes: true });
     } catch (error: any) {
       if (error.code === 'ENOENT') {
         return [];
@@ -669,6 +678,10 @@ export const createStorageService = (
     absoluteFilePath: string
   ): Promise<void> => {
     const versionDirectoryPath = path.dirname(absoluteFilePath);
+    await resolveStoragePath(
+      storageRoot,
+      path.relative(storageRoot, versionDirectoryPath)
+    );
     // A version directory can also contain file groups for nested public paths.
     await fs.rm(path.join(versionDirectoryPath, 'metadata.json'), {
       force: true,
@@ -756,8 +769,17 @@ export const createStorageService = (
     const metadataFilePath = path.join(versionDirectoryPath, 'metadata.json');
     let metadata: StoredUploadMetadata;
     try {
-      const metadataContent = await fs.readFile(metadataFilePath, 'utf-8');
-      metadata = parseStoredUploadMetadata(JSON.parse(metadataContent));
+      const { file } = await openStorageFile(
+        storageRoot,
+        path.relative(storageRoot, metadataFilePath)
+      );
+      try {
+        metadata = parseStoredUploadMetadata(
+          JSON.parse(await file.readFile('utf8'))
+        );
+      } finally {
+        await file.close();
+      }
     } catch {
       return undefined;
     }
@@ -768,10 +790,12 @@ export const createStorageService = (
     );
     let stat;
     try {
-      stat = await fs.stat(absoluteFilePath);
-      if (!stat.isFile()) {
-        return undefined;
-      }
+      const opened = await openStorageFile(
+        storageRoot,
+        path.relative(storageRoot, absoluteFilePath)
+      );
+      stat = opened.stats;
+      await opened.file.close();
     } catch {
       return undefined;
     }
@@ -1013,7 +1037,6 @@ export const createStorageService = (
     groupDirectoryPath: string
   ): Promise<{ uploadId: string; versionDirectoryPath: string }> => {
     const baseId = dayjs().utc().format('YYYYMMDD_HHmmss_SSS');
-    await fs.mkdir(groupDirectoryPath, { recursive: true });
 
     for (let sequence = 0; ; sequence++) {
       const uploadId = sequence === 0 ? baseId : `${baseId}_${sequence}`;
@@ -1150,6 +1173,7 @@ export const createStorageService = (
         'store'
       );
 
+      await prepareStorageDirectory(storageRoot, normalizedPath.segments);
       const groupDirectoryPath = getGroupDirectoryPath(normalizedPath);
       const normalizedMetadata = normalizeStoredUploadMetadata(metadata);
       const { uploadId, versionDirectoryPath } =
@@ -1159,11 +1183,12 @@ export const createStorageService = (
         normalizedPath.fileName
       );
       try {
-        await fs.writeFile(absoluteFilePath, fileContent);
+        await fs.writeFile(absoluteFilePath, fileContent, { flag: 'wx' });
         // Readers recognize the version when its metadata is present.
         await fs.writeFile(
           path.join(versionDirectoryPath, 'metadata.json'),
-          JSON.stringify(normalizedMetadata)
+          JSON.stringify(normalizedMetadata),
+          { flag: 'wx' }
         );
       } catch (error) {
         await removeVersionFiles(absoluteFilePath);

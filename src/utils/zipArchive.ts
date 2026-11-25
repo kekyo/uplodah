@@ -3,7 +3,7 @@
 // Under MIT.
 // https://github.com/kekyo/uplodah
 
-import { stat } from 'fs/promises';
+import { openStorageFile } from './storagePaths.ts';
 import type { ReaderWriterLock } from 'async-primitives';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
@@ -16,8 +16,8 @@ dayjs.extend(utc);
  * File entry included in a ZIP archive.
  */
 export interface ZipArchiveEntry {
-  /** Absolute filesystem path to the stored payload file. */
-  absoluteFilePath: string;
+  /** Path to the payload relative to the configured storage root. */
+  filePath: string;
   /** Path to write into the ZIP archive. */
   archivePath: string;
   /** Upload timestamp used as the ZIP entry modification time. */
@@ -32,7 +32,7 @@ interface ZipArchiveWorkerMessage {
 }
 
 const zipArchiveWorkerSource = `
-import { readFile, writeFile } from 'fs/promises';
+import { writeFile } from 'fs/promises';
 import { parentPort, workerData } from 'worker_threads';
 import AdmZip from 'adm-zip';
 
@@ -44,12 +44,12 @@ const getEntryTime = (uploadedAt) => {
 try {
   const zipFile = new AdmZip();
   for (const entry of workerData.entries) {
-    const fileContent = await readFile(entry.absoluteFilePath);
+    const fileContent = Buffer.from(entry.contents);
     const zipEntry = zipFile.addFile(entry.archivePath, fileContent);
     zipEntry.header.time = getEntryTime(entry.uploadedAt);
   }
 
-  await writeFile(workerData.outputPath, zipFile.toBuffer());
+  await writeFile(workerData.outputPath, zipFile.toBuffer(), { flag: 'wx', mode: 0o600 });
   parentPort?.postMessage({ type: 'done' });
 } catch (error) {
   parentPort?.postMessage({
@@ -76,13 +76,17 @@ const createWorkerError = (message: ZipArchiveWorkerMessage): Error => {
  * Build a ZIP archive file on a worker thread.
  * @param logger Logger instance.
  * @param locker Reader lock held while source files are read.
+ * @param storageRoot Trusted root of all selected file versions.
  * @param entries File entries to include.
+ * @param maxBytes Maximum combined input size.
  * @param outputPath Absolute path for the generated ZIP file.
  */
 export const createZipArchiveFile = async (
   logger: Logger,
   locker: ReaderWriterLock,
+  storageRoot: string,
   entries: readonly ZipArchiveEntry[],
+  maxBytes: number,
   outputPath: string
 ): Promise<void> => {
   const handler = await locker.readLock();
@@ -91,10 +95,43 @@ export const createZipArchiveFile = async (
       throw new Error('No files selected');
     }
 
+    const inputs: {
+      archivePath: string;
+      uploadedAt: string;
+      contents: ArrayBuffer;
+    }[] = [];
+    let remaining = maxBytes;
     for (const entry of entries) {
-      const stats = await stat(entry.absoluteFilePath);
-      if (!stats.isFile()) {
-        throw new Error('File not found');
+      const { file, stats } = await openStorageFile(
+        storageRoot,
+        entry.filePath
+      );
+      try {
+        if (stats.size > remaining)
+          throw new Error('Archive exceeds the download size limit');
+        remaining -= stats.size;
+        // Transfer each allocation to the compressor; it never reopens a payload by path.
+        const contents = new ArrayBuffer(stats.size);
+        const bytes = new Uint8Array(contents);
+        let offset = 0;
+        while (offset < bytes.length) {
+          const result = await file.read(
+            bytes,
+            offset,
+            bytes.length - offset,
+            null
+          );
+          if (result.bytesRead === 0)
+            throw new Error('File changed while creating the archive');
+          offset += result.bytesRead;
+        }
+        inputs.push({
+          archivePath: entry.archivePath,
+          uploadedAt: entry.uploadedAt,
+          contents,
+        });
+      } finally {
+        await file.close();
       }
     }
 
@@ -107,10 +144,11 @@ export const createZipArchiveFile = async (
       let done = false;
       let settled = false;
       const workerOptions: WorkerOptions & { type: 'module' } = {
+        transferList: inputs.map((input) => input.contents),
         eval: true,
         type: 'module',
         workerData: {
-          entries,
+          entries: inputs,
           outputPath,
         },
       };
