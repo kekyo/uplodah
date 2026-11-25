@@ -29,9 +29,9 @@ export const resolveStoragePath = async (
   if (isAbsolute(relativePath) || relativePath.includes('\0'))
     throw unavailable();
   const directory = await realpath(root);
+  if (relativePath === '') return directory;
   const candidate = resolve(directory, relativePath);
   if (
-    candidate !== directory &&
     !candidate.startsWith(directory.endsWith(sep) ? directory : directory + sep)
   )
     throw unavailable();

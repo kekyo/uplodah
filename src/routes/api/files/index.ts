@@ -173,14 +173,21 @@ const sanitizePortableFileNameComponent = (
   value: string,
   fallbackValue: string
 ): string => {
-  const sanitizedValue = value
+  const normalized = value
     .normalize('NFKC')
     .replace(/[^\p{L}\p{N}._-]+/gu, '-')
-    .replace(/-+/g, '-')
-    .replace(/^[.-]+|[.-]+$/g, '');
-
+    .replace(/-+/g, '-');
+  const start = normalized.search(/[^.-]/);
+  let end = normalized.length;
+  while (
+    end > 0 &&
+    (normalized[end - 1] === '.' || normalized[end - 1] === '-')
+  )
+    end--;
   const fileName =
-    sanitizedValue.length > 0 ? sanitizedValue.slice(0, 120) : fallbackValue;
+    start < 0
+      ? fallbackValue
+      : normalized.slice(start, Math.min(end, start + 120));
   const reservedNameTarget = fileName.split('.')[0]?.toUpperCase();
   return reservedNameTarget && reservedWindowsFileNames.has(reservedNameTarget)
     ? `_${fileName}`
@@ -596,7 +603,10 @@ export const registerFilesRoutes = async (
         logger.error(`Failed to serve archive ${requestId}: ${error}`);
         return reply.status(500).send({ error: 'Internal server error' });
       } finally {
-        if (reply.statusCode === 404 || (reply.statusCode === 200 && reply.raw.headersSent)) {
+        if (
+          reply.statusCode === 404 ||
+          (reply.statusCode === 200 && reply.raw.headersSent)
+        ) {
           archiveRequests.delete(requestId);
           await cleanupArchiveRequestFiles(archiveRequest, logger);
         }

@@ -4,19 +4,15 @@
 // https://github.com/kekyo/uplodah
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { runCli } from './helpers/cli.ts';
 import { writeFile } from 'fs/promises';
 import { join } from 'path';
 import { createTestDirectory, getTestPort } from './helpers/test-helper';
 import { loadConfigFromPath } from '../src/utils/configLoader';
 
-const execAsync = promisify(exec);
-
 describe('max upload and download size configuration', () => {
   let testDir: string;
   let testPort: number;
-  const cliPath = join(process.cwd(), 'dist', 'cli.mjs');
 
   beforeEach(async (fn) => {
     testDir = await createTestDirectory('max-upload-size', fn.task.name);
@@ -27,15 +23,6 @@ describe('max upload and download size configuration', () => {
     delete process.env.UPLODAH_MAX_UPLOAD_SIZE_MB;
     delete process.env.UPLODAH_MAX_DOWNLOAD_SIZE_MB;
   });
-
-  const runCli = async (
-    args = '',
-    env: Record<string, string> = {}
-  ): Promise<{ stdout: string; stderr: string }> => {
-    const fullEnv = { ...process.env, ...env };
-    const command = `timeout 5 node ${cliPath} ${args} || true`;
-    return execAsync(command, { env: fullEnv });
-  };
 
   it('should load valid maxUploadSizeMb from config.json', async () => {
     const configPath = join(testDir, 'config.json');
@@ -88,24 +75,43 @@ describe('max upload and download size configuration', () => {
   });
 
   it('should accept --max-upload-size-mb CLI argument', async () => {
-    const { stdout } = await runCli(
-      `--port ${testPort} --max-upload-size-mb 250 --storage-dir ${testDir}`
-    );
+    const { stdout } = await runCli([
+      '--port',
+      String(testPort),
+      '--max-upload-size-mb',
+      '250',
+      '--storage-dir',
+      testDir,
+    ]);
 
     expect(stdout).toContain('Max upload size: 250MB');
   }, 10000);
 
   it('should accept --max-download-size-mb CLI argument', async () => {
-    const { stdout } = await runCli(
-      `--port ${testPort} --max-download-size-mb 350 --storage-dir ${testDir}`
-    );
+    const { stdout } = await runCli([
+      '--port',
+      String(testPort),
+      '--max-download-size-mb',
+      '350',
+      '--storage-dir',
+      testDir,
+    ]);
 
     expect(stdout).toContain('Max download size: 350MB');
   }, 10000);
 
   it('should reject invalid --max-upload-size-mb CLI values', async () => {
     const result = await runCli(
-      `--port ${testPort} --max-upload-size-mb 0 --storage-dir ${testDir}`
+      [
+        '--port',
+        String(testPort),
+        '--max-upload-size-mb',
+        '0',
+        '--storage-dir',
+        testDir,
+      ],
+      {},
+      1
     );
 
     expect(result.stderr).toContain(
@@ -115,7 +121,16 @@ describe('max upload and download size configuration', () => {
 
   it('should reject invalid --max-download-size-mb CLI values', async () => {
     const result = await runCli(
-      `--port ${testPort} --max-download-size-mb 0 --storage-dir ${testDir}`
+      [
+        '--port',
+        String(testPort),
+        '--max-download-size-mb',
+        '0',
+        '--storage-dir',
+        testDir,
+      ],
+      {},
+      1
     );
 
     expect(result.stderr).toContain(
@@ -125,7 +140,7 @@ describe('max upload and download size configuration', () => {
 
   it('should accept UPLODAH_MAX_UPLOAD_SIZE_MB environment variable', async () => {
     const { stdout } = await runCli(
-      `--port ${testPort} --storage-dir ${testDir}`,
+      ['--port', String(testPort), '--storage-dir', testDir],
       {
         UPLODAH_MAX_UPLOAD_SIZE_MB: '300',
       }
@@ -136,7 +151,7 @@ describe('max upload and download size configuration', () => {
 
   it('should accept UPLODAH_MAX_DOWNLOAD_SIZE_MB environment variable', async () => {
     const { stdout } = await runCli(
-      `--port ${testPort} --storage-dir ${testDir}`,
+      ['--port', String(testPort), '--storage-dir', testDir],
       {
         UPLODAH_MAX_DOWNLOAD_SIZE_MB: '450',
       }
@@ -147,7 +162,7 @@ describe('max upload and download size configuration', () => {
 
   it('should use default value for invalid environment variable values', async () => {
     const { stdout } = await runCli(
-      `--port ${testPort} --storage-dir ${testDir}`,
+      ['--port', String(testPort), '--storage-dir', testDir],
       {
         UPLODAH_MAX_UPLOAD_SIZE_MB: 'abc',
       }
@@ -167,7 +182,18 @@ describe('max upload and download size configuration', () => {
     );
 
     const { stdout } = await runCli(
-      `--port ${testPort} --config-file ${configPath} --max-upload-size-mb 400 --max-download-size-mb 500 --storage-dir ${testDir}`,
+      [
+        '--port',
+        String(testPort),
+        '--config-file',
+        configPath,
+        '--max-upload-size-mb',
+        '400',
+        '--max-download-size-mb',
+        '500',
+        '--storage-dir',
+        testDir,
+      ],
       {
         UPLODAH_MAX_UPLOAD_SIZE_MB: '300',
         UPLODAH_MAX_DOWNLOAD_SIZE_MB: '350',
@@ -189,7 +215,14 @@ describe('max upload and download size configuration', () => {
     );
 
     const { stdout } = await runCli(
-      `--port ${testPort} --config-file ${configPath} --storage-dir ${testDir}`,
+      [
+        '--port',
+        String(testPort),
+        '--config-file',
+        configPath,
+        '--storage-dir',
+        testDir,
+      ],
       {
         UPLODAH_MAX_UPLOAD_SIZE_MB: '300',
         UPLODAH_MAX_DOWNLOAD_SIZE_MB: '350',

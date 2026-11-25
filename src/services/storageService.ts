@@ -681,7 +681,8 @@ export const createStorageService = (
     let directory: string;
     try {
       directory = await resolveStoragePath(
-        storageRoot, path.relative(storageRoot, versionDirectoryPath)
+        storageRoot,
+        path.relative(storageRoot, versionDirectoryPath)
       );
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
@@ -691,7 +692,9 @@ export const createStorageService = (
     await fs.rm(path.join(directory, 'metadata.json'), {
       force: true,
     });
-    await fs.rm(path.join(directory, path.basename(absoluteFilePath)), { force: true });
+    await fs.rm(path.join(directory, path.basename(absoluteFilePath)), {
+      force: true,
+    });
     await cleanupEmptyDirectories(versionDirectoryPath, storageRoot);
   };
 
@@ -1178,7 +1181,10 @@ export const createStorageService = (
         'store'
       );
 
-      const groupDirectoryPath = await prepareStorageDirectory(storageRoot, normalizedPath.segments);
+      const groupDirectoryPath = await prepareStorageDirectory(
+        storageRoot,
+        normalizedPath.segments
+      );
       const normalizedMetadata = normalizeStoredUploadMetadata(metadata);
       const { uploadId, versionDirectoryPath } =
         await createVersionDirectory(groupDirectoryPath);
@@ -1195,7 +1201,13 @@ export const createStorageService = (
           { flag: 'wx' }
         );
       } catch (error) {
-        await removeVersionFiles(path.join(getGroupDirectoryPath(normalizedPath), uploadId, normalizedPath.fileName));
+        await removeVersionFiles(
+          path.join(
+            getGroupDirectoryPath(normalizedPath),
+            uploadId,
+            normalizedPath.fileName
+          )
+        );
         throw error;
       }
 

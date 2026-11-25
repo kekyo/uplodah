@@ -42,7 +42,10 @@ export interface TotpServiceConfig {
   issuer: string;
 }
 
-const fail = (code: string, statusCode: number): never => {
+const fail: (code: string, statusCode: number) => never = (
+  code,
+  statusCode
+) => {
   throw Object.assign(new Error(code), { code, statusCode });
 };
 
@@ -267,7 +270,7 @@ export const createTotpService = (config: TotpServiceConfig) => {
       verified.id !== user.id ||
       (verified.authVersion ?? 0) !== (user.authVersion ?? 0)
     )
-      return fail('TOTP_PASSWORD_INVALID', 400);
+      fail('TOTP_PASSWORD_INVALID', 400);
     return verified;
   };
 

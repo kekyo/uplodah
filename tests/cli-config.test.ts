@@ -4,18 +4,14 @@
 // https://github.com/kekyo/uplodah
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { runCli } from './helpers/cli.ts';
 import { writeFile } from 'fs/promises';
 import { join, resolve } from 'path';
 import { createTestDirectory, getTestPort } from './helpers/test-helper';
 
-const execAsync = promisify(exec);
-
 describe('CLI configuration priority', () => {
   let testDir: string;
   let testPort: number;
-  const cliPath = join(process.cwd(), 'dist', 'cli.mjs');
 
   beforeEach(async (fn) => {
     testDir = await createTestDirectory('cli-config', fn.task.name);
@@ -34,15 +30,6 @@ describe('CLI configuration priority', () => {
     delete process.env.UPLODAH_TRUSTED_PROXIES;
   });
 
-  const runCli = async (
-    args = '',
-    env: Record<string, string> = {}
-  ): Promise<{ stdout: string; stderr: string }> => {
-    const fullEnv = { ...process.env, ...env };
-    const command = `timeout 5 node ${cliPath} ${args} || true`;
-    return execAsync(command, { env: fullEnv });
-  };
-
   it('should use CLI options as highest priority', async () => {
     const configPath = join(testDir, 'config.json');
     await writeFile(
@@ -56,7 +43,18 @@ describe('CLI configuration priority', () => {
     );
 
     const { stdout } = await runCli(
-      `--port ${testPort} --storage-dir ./cli-storage --log-level info --auth-mode none -c ${configPath}`,
+      [
+        '--port',
+        String(testPort),
+        '--storage-dir',
+        './cli-storage',
+        '--log-level',
+        'info',
+        '--auth-mode',
+        'none',
+        '-c',
+        configPath,
+      ],
       {
         UPLODAH_PORT: '8000',
         UPLODAH_STORAGE_DIR: './env-storage',
@@ -82,7 +80,7 @@ describe('CLI configuration priority', () => {
       })
     );
 
-    const { stdout } = await runCli(`-c ${configPath}`, {
+    const { stdout } = await runCli(['-c', configPath], {
       UPLODAH_PORT: String(testPort),
       UPLODAH_STORAGE_DIR: './env-storage',
       UPLODAH_AUTH_MODE: 'publish',
@@ -94,7 +92,7 @@ describe('CLI configuration priority', () => {
   }, 10000);
 
   it('should use config.json when CLI and env are not provided', async () => {
-    const configPath = join(testDir, 'config.json');
+    const configPath = join(testDir, 'config with spaces.json');
     await writeFile(
       configPath,
       JSON.stringify({
@@ -106,7 +104,7 @@ describe('CLI configuration priority', () => {
       })
     );
 
-    const { stdout, stderr } = await runCli(`-c ${configPath}`);
+    const { stdout, stderr } = await runCli(['-c', configPath]);
     const output = stdout || stderr;
 
     expect(output).toContain(`Port: ${testPort}`);
@@ -123,7 +121,7 @@ describe('CLI configuration priority', () => {
 
   it('should use defaults when nothing is provided', async () => {
     const configPath = join(testDir, 'nonexistent.json');
-    const { stdout, stderr } = await runCli(`-c ${configPath}`);
+    const { stdout, stderr } = await runCli(['-c', configPath]);
     const output = stdout || stderr;
 
     expect(output).toContain('Port: 5968');
@@ -144,7 +142,7 @@ describe('CLI configuration priority', () => {
 
     const cliUsersFile = join(testDir, 'cli-users.json');
     const { stdout } = await runCli(
-      `-c ${configPath} --users-file ${cliUsersFile}`,
+      ['-c', configPath, '--users-file', cliUsersFile],
       {
         UPLODAH_USERS_FILE: join(testDir, 'env-users.json'),
       }
@@ -163,7 +161,7 @@ describe('CLI configuration priority', () => {
       })
     );
 
-    const { stdout } = await runCli('', {
+    const { stdout } = await runCli([], {
       UPLODAH_CONFIG_FILE: configPath,
     });
 
@@ -174,7 +172,7 @@ describe('CLI configuration priority', () => {
 
   it('should read baseUrl and trusted proxies from environment', async () => {
     const { stdout } = await runCli(
-      `--port ${testPort} --storage-dir ${testDir}`,
+      ['--port', String(testPort), '--storage-dir', testDir],
       {
         UPLODAH_BASE_URL: 'https://files.example.com/u',
         UPLODAH_TRUSTED_PROXIES: '127.0.0.1, 10.0.0.1',
