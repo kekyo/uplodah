@@ -113,8 +113,12 @@ it('separates human passwords from random API passwords and rejects stale accoun
     ).toBeUndefined();
     await users.updateUser('alice', { password: 'new-example-password' });
     expect(await users.regenerateApiPassword('alice', alice)).toBeUndefined();
-    expect((await users.deleteApiPassword('alice', 'fixture', alice)).success).toBe(false);
-    expect((await users.validateApiPassword('alice', token.apiPassword))?.id).toBe(alice.id);
+    expect(
+      (await users.deleteApiPassword('alice', 'fixture', alice)).success
+    ).toBe(false);
+    expect(
+      (await users.validateApiPassword('alice', token.apiPassword))?.id
+    ).toBe(alice.id);
     expect(
       (await users.validateCredentials('alice', 'new-example-password'))?.id
     ).toBe(alice.id);
@@ -333,27 +337,53 @@ it('rolls back failed conversions and never overwrites a password changed since 
 it('retains a single legacy API password as default until it is revoked or replaced', async () => {
   const dir = await createTestDirectory('credentials', 'single API password');
   const file = join(dir, 'users.json');
-  await writeFile(file, JSON.stringify([{ id: '1', username: 'alice', role: 'read', createdAt: '',
-    passwordHash: 'unrelated', salt: 'unused', apiPasswords: [],
-    apiPasswordHash: 'aTy4FwQS0BXd7NhDZA4YVA/r4mE=', apiPasswordSalt: 'legacy-salt' }]));
-  const users = createUserService({ configDir: dir,
-    logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } });
+  await writeFile(
+    file,
+    JSON.stringify([
+      {
+        id: '1',
+        username: 'alice',
+        role: 'read',
+        createdAt: '',
+        passwordHash: 'unrelated',
+        salt: 'unused',
+        apiPasswords: [],
+        apiPasswordHash: 'aTy4FwQS0BXd7NhDZA4YVA/r4mE=',
+        apiPasswordSalt: 'legacy-salt',
+      },
+    ])
+  );
+  const users = createUserService({
+    configDir: dir,
+    logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  });
   try {
     await users.initialize();
     expect((await users.listApiPasswords('alice'))?.apiPasswords).toEqual([
-      { label: 'default', createdAt: '', migrationStatus: 'pending' }]);
-    expect((await users.validateApiPassword('alice', 'npmjs_fixture'))?.id).toBe('1');
+      { label: 'default', createdAt: '', migrationStatus: 'pending' },
+    ]);
+    expect(
+      (await users.validateApiPassword('alice', 'npmjs_fixture'))?.id
+    ).toBe('1');
     const named = (await users.addApiPassword('alice', 'deploy'))!;
     const replacement = (await users.regenerateApiPassword('alice'))!;
-    expect(await users.validateApiPassword('alice', 'npmjs_fixture')).toBeUndefined();
-    expect((await users.validateApiPassword('alice', replacement.apiPassword))?.id).toBe('1');
+    expect(
+      await users.validateApiPassword('alice', 'npmjs_fixture')
+    ).toBeUndefined();
+    expect(
+      (await users.validateApiPassword('alice', replacement.apiPassword))?.id
+    ).toBe('1');
     await users.deleteApiPassword('alice', 'default');
-    expect((await users.validateApiPassword('alice', named.apiPassword))?.id).toBe('1');
+    expect(
+      (await users.validateApiPassword('alice', named.apiPassword))?.id
+    ).toBe('1');
     await users.deleteApiPassword('alice', 'deploy');
     users.destroy();
     await users.initialize();
     expect((await users.listApiPasswords('alice'))?.apiPasswords).toEqual([]);
-    expect(await users.validateApiPassword('alice', 'npmjs_fixture')).toBeUndefined();
+    expect(
+      await users.validateApiPassword('alice', 'npmjs_fixture')
+    ).toBeUndefined();
   } finally {
     users.destroy();
   }

@@ -194,6 +194,40 @@ export interface UserService {
   ) => Promise<User | undefined>;
 }
 
+// Older stores kept one unlabelled Basic credential on the account.
+const getApiPasswords = (user: User): ApiPassword[] => {
+  if (user.apiPasswords?.length) return user.apiPasswords;
+  if (user.apiPasswordHash && user.apiPasswordSalt) {
+    return [
+      {
+        label: 'default',
+        passwordHash: user.apiPasswordHash,
+        salt: user.apiPasswordSalt,
+        createdAt: user.createdAt,
+      },
+    ];
+  }
+  return [];
+};
+
+/**
+ * Counts credentials still awaiting a successful verification in the current format.
+ * @param users - Account snapshots from the same user-store read.
+ * @returns Counts of login passwords and Basic API passwords in the legacy format.
+ */
+export const countLegacyCredentials = (users: readonly User[]) => ({
+  passwords: users.filter((user) => isLegacyCredentialHash(user.passwordHash))
+    .length,
+  apiPasswords: users.reduce(
+    (count, user) =>
+      count +
+      getApiPasswords(user).filter((entry) =>
+        isLegacyCredentialHash(entry.passwordHash)
+      ).length,
+    0
+  ),
+});
+
 /**
  * Creates a user service instance for managing JSON-based user data
  * @param config - User service configuration
@@ -365,22 +399,6 @@ export const createUserService = (config: UserServiceConfig): UserService => {
     !expected ||
     (user.id === expected.id &&
       (user.authVersion ?? 0) === (expected.authVersion ?? 0));
-
-  // Older stores kept one unlabelled Basic credential on the account.
-  const getApiPasswords = (user: User): ApiPassword[] => {
-    if (user.apiPasswords?.length) return user.apiPasswords;
-    if (user.apiPasswordHash && user.apiPasswordSalt) {
-      return [
-        {
-          label: 'default',
-          passwordHash: user.apiPasswordHash,
-          salt: user.apiPasswordSalt,
-          createdAt: user.createdAt,
-        },
-      ];
-    }
-    return [];
-  };
 
   const storeApiPasswords = (user: User, credentials: ApiPassword[]) => {
     user.apiPasswords = credentials;

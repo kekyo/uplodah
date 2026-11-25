@@ -26,18 +26,13 @@ import {
 import { PasswordStrengthIndicator } from './PasswordStrengthIndicator';
 import { apiFetch } from '../utils/apiClient';
 import { TypedMessage, useTypedMessage } from 'typed-message';
+import type { UserListResponse } from '../../routes/api/ui/index.ts';
 import { messages } from '../../generated/messages';
 
 interface UserPasswordResetDrawerProps {
   open: boolean;
   onClose: () => void;
   onPasswordResetSuccess?: () => void;
-}
-
-interface User {
-  id: string;
-  username: string;
-  role: string;
 }
 
 interface ResetResult {
@@ -51,7 +46,8 @@ const UserPasswordResetDrawer = ({
   onPasswordResetSuccess,
 }: UserPasswordResetDrawerProps) => {
   const getMessage = useTypedMessage();
-  const [users, setUsers] = useState<User[]>([]);
+  const [userList, setUserList] = useState<UserListResponse | null>(null);
+  const users = userList?.users ?? [];
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [selectedUsername, setSelectedUsername] = useState<string | null>(null);
   const [password, setPassword] = useState('');
@@ -79,8 +75,7 @@ const UserPasswordResetDrawer = ({
       });
 
       if (response.ok) {
-        const data = await response.json();
-        setUsers(data.users || []);
+        setUserList(await response.json());
       } else if (response.status === 401) {
         // Session expired - handled by apiFetch interceptor
         handleClose();
@@ -159,6 +154,7 @@ const UserPasswordResetDrawer = ({
           success: true,
           message: data.message || getMessage(messages.PASSWORD_RESET_SUCCESS),
         });
+        await loadUsers();
         if (onPasswordResetSuccess) {
           onPasswordResetSuccess();
         }
@@ -191,7 +187,7 @@ const UserPasswordResetDrawer = ({
     setConfirmPassword('');
     setResetting(false);
     setResult(null);
-    setUsers([]);
+    setUserList(null);
     onClose();
   };
 
@@ -233,6 +229,15 @@ const UserPasswordResetDrawer = ({
         </Box>
 
         <Divider sx={{ mb: 3 }} />
+
+        {userList?.credentialMigration && (
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            {getMessage(
+              messages.CREDENTIAL_MIGRATION_COUNTS,
+              userList.credentialMigration
+            )}
+          </Typography>
+        )}
 
         {!result ? (
           <Box>
