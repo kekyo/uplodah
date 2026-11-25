@@ -22,6 +22,35 @@ export const generateSalt = (length: number = 16): string => {
 };
 
 /**
+ * Reproduces the Base64 digest in older user stores for comparison only.
+ * @param password - Credential supplied by its holder.
+ * @param salt - Salt written with the original digest.
+ * @returns The historical representation of the submitted credential.
+ */
+const legacyCredentialDigest = (password: string, salt: string): string => {
+  const hash = createHash('sha1');
+  hash.update(password + salt);
+  return hash.digest('base64');
+};
+
+/**
+ * Verifies a password against a hash
+ * @param password - Plain text password to verify
+ * @param hash - Stored hash
+ * @param salt - Salt used for hashing
+ * @returns True if password matches
+ */
+export const verifyPassword = async (
+  password: string,
+  hash: string,
+  salt: string
+): Promise<boolean> =>
+  typeof hash === 'string' &&
+  (hash.startsWith(passwordPrefix)
+    ? matchesDigest(hash, passwordPrefix, await derivePassword(password, salt))
+    : matchesLegacyCredential(password, hash, salt));
+
+/**
  * Identifies the canonical, untagged Base64 encoding used in older user stores.
  * @param hash - Stored password or API password hash.
  * @returns Whether the record contains a legacy 20-byte digest.
@@ -32,13 +61,11 @@ export const isLegacyCredentialHash = (hash: string): boolean =>
   Buffer.from(hash, 'base64').toString('base64') === hash;
 
 /**
- * Verifies an existing salted SHA-1 record during the migration period.
- * @param password - Password or API password presented by its holder.
- * @param storedHash - Stored legacy digest.
- * @param salt - The original salt string, as written by older releases.
- * @returns Whether this credential matches a supported legacy record.
- * @remarks This compatibility reader never creates credentials. Its callers
- * replace a verified record before returning authentication success.
+ * Compares a submitted credential with a canonical record from older releases.
+ * @param password - Login or API password supplied by its holder.
+ * @param storedHash - Historical Base64 digest from the account record.
+ * @param salt - Salt stored with the historical digest.
+ * @returns Whether the credential matched and can be upgraded.
  */
 export const matchesLegacyCredential = (
   password: string,
@@ -51,9 +78,10 @@ export const matchesLegacyCredential = (
     salt.length === 0
   )
     return false;
-  const hash = createHash('sha1');
-  hash.update(password + salt);
-  return timingSafeEqual(hash.digest(), Buffer.from(storedHash, 'base64'));
+  return timingSafeEqual(
+    Buffer.from(legacyCredentialDigest(password, salt), 'ascii'),
+    Buffer.from(storedHash, 'ascii')
+  );
 };
 
 // Parameters form part of the on-disk format. Do not accept work factors from disk.
@@ -109,30 +137,16 @@ export const hashPassword = async (
   passwordPrefix + (await derivePassword(password, salt)).toString('hex');
 
 /**
- * Verifies a supported password record.
- * @param password - Submitted password.
- * @param hash - Stored, versioned password hash.
- * @param salt - Stored salt.
- * @returns Whether the password matches.
- */
-export const verifyPassword = async (
-  password: string,
-  hash: string,
-  salt: string
-): Promise<boolean> =>
-  typeof hash === 'string' &&
-  (hash.startsWith(passwordPrefix)
-    ? matchesDigest(hash, passwordPrefix, await derivePassword(password, salt))
-    : matchesLegacyCredential(password, hash, salt));
-
-/**
  * Derives an application-specific verifier for a randomly generated Basic API key.
  * The issued 192-bit secret is the HMAC key. Only its tag for this fixed domain is stored.
  * @param token - API password supplied through HTTP Basic authentication.
  * @returns HMAC-SHA-256 verification tag.
  */
 export const apiPasswordDigest = (token: string): Buffer =>
-  createHmac('sha256', token).update('uplodah/basic-api/v1').digest();
+  // HMAC pads short keys with zero bytes. Bind the input length to its tag.
+  createHmac('sha256', token)
+    .update(`uplodah/basic-api/v1:${Buffer.byteLength(token, 'utf8')}`)
+    .digest();
 
 /**
  * Encodes a token digest for storage on issuance or migration.

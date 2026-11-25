@@ -7,7 +7,7 @@ import { expect, it, vi } from 'vitest';
 import { mkdir, readFile, rename, rmdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { hashPassword } from '../src/utils/crypto.ts';
+import { apiPasswordDigest, hashPassword } from '../src/utils/crypto.ts';
 import { createUserService } from '../src/services/userService.ts';
 import { createTestDirectory } from './helpers/test-helper.ts';
 
@@ -60,6 +60,11 @@ it('resets only the selected password through the stopped-server CLI', async () 
   });
   expect(stored[0].passwordHash).toMatch(/^scrypt\$/);
   expect(stored[1]).toEqual(accounts[1]);
+});
+
+it('distinguishes API credential byte strings of different lengths', () => {
+  const verifier = apiPasswordDigest('fixture');
+  expect(apiPasswordDigest('fixture\0')).not.toEqual(verifier);
 });
 
 it('bounds queued password work and reports temporary overload', async () => {
