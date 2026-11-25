@@ -596,8 +596,10 @@ export const registerFilesRoutes = async (
         logger.error(`Failed to serve archive ${requestId}: ${error}`);
         return reply.status(500).send({ error: 'Internal server error' });
       } finally {
-        archiveRequests.delete(requestId);
-        await cleanupArchiveRequestFiles(archiveRequest, logger);
+        if (reply.statusCode === 404 || (reply.statusCode === 200 && reply.raw.headersSent)) {
+          archiveRequests.delete(requestId);
+          await cleanupArchiveRequestFiles(archiveRequest, logger);
+        }
       }
     }
   );

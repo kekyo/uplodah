@@ -5,6 +5,7 @@
 
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs/promises';
+import { rmSync } from 'node:fs';
 import path from 'path';
 import { createStorageService } from '../src/services/storageService';
 import { Logger, ServerConfig } from '../src/types';
@@ -641,6 +642,33 @@ describe('storageService', () => {
     expect(
       await service.getLatestFileVersion('incoming/report.txt')
     ).toBeUndefined();
+  });
+
+  it('ignores an expired version already removed by another scan', async () => {
+    vi.useFakeTimers();
+    const service = createService({
+      storage: { '/incoming': { expireSeconds: 1 } },
+    });
+    await service.initialize();
+    const version = await service.storeFile(
+      'incoming/report.txt',
+      Buffer.from('temporary')
+    );
+    vi.setSystemTime(Date.now() + 2000);
+    const info = vi.spyOn(logger, 'info').mockImplementation((message) => {
+      if (message.startsWith('Removing expired upload:')) {
+        rmSync(path.join(testDir, 'incoming/report.txt', version.uploadId), {
+          recursive: true,
+        });
+      }
+    });
+    try {
+      expect(
+        await service.getLatestFileVersion('incoming/report.txt')
+      ).toBeUndefined();
+    } finally {
+      info.mockRestore();
+    }
   });
 
   it('should keep a nested file when the parent version expires', async () => {

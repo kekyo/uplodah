@@ -125,6 +125,8 @@ export const createZipArchiveFile = async (
             throw new Error('File changed while creating the archive');
           offset += result.bytesRead;
         }
+        if ((await file.stat()).size !== stats.size)
+          throw new Error('File changed while creating the archive');
         inputs.push({
           archivePath: entry.archivePath,
           uploadedAt: entry.uploadedAt,

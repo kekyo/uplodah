@@ -678,15 +678,20 @@ export const createStorageService = (
     absoluteFilePath: string
   ): Promise<void> => {
     const versionDirectoryPath = path.dirname(absoluteFilePath);
-    await resolveStoragePath(
-      storageRoot,
-      path.relative(storageRoot, versionDirectoryPath)
-    );
+    let directory: string;
+    try {
+      directory = await resolveStoragePath(
+        storageRoot, path.relative(storageRoot, versionDirectoryPath)
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+      throw error;
+    }
     // A version directory can also contain file groups for nested public paths.
-    await fs.rm(path.join(versionDirectoryPath, 'metadata.json'), {
+    await fs.rm(path.join(directory, 'metadata.json'), {
       force: true,
     });
-    await fs.rm(absoluteFilePath, { force: true });
+    await fs.rm(path.join(directory, path.basename(absoluteFilePath)), { force: true });
     await cleanupEmptyDirectories(versionDirectoryPath, storageRoot);
   };
 
@@ -1173,8 +1178,7 @@ export const createStorageService = (
         'store'
       );
 
-      await prepareStorageDirectory(storageRoot, normalizedPath.segments);
-      const groupDirectoryPath = getGroupDirectoryPath(normalizedPath);
+      const groupDirectoryPath = await prepareStorageDirectory(storageRoot, normalizedPath.segments);
       const normalizedMetadata = normalizeStoredUploadMetadata(metadata);
       const { uploadId, versionDirectoryPath } =
         await createVersionDirectory(groupDirectoryPath);
@@ -1191,7 +1195,7 @@ export const createStorageService = (
           { flag: 'wx' }
         );
       } catch (error) {
-        await removeVersionFiles(absoluteFilePath);
+        await removeVersionFiles(path.join(getGroupDirectoryPath(normalizedPath), uploadId, normalizedPath.fileName));
         throw error;
       }
 
