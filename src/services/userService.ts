@@ -3,8 +3,11 @@
 // Under MIT.
 // https://github.com/kekyo/uplodah
 
-import { constants } from 'fs';
-import { readFile, access } from 'fs/promises';
+import { readFile } from 'node:fs/promises';
+import {
+  isLegacyCredentialHash,
+  matchesLegacyCredential,
+} from '../utils/legacyCredentials.ts';
 import { join } from 'path';
 import { createReaderWriterLock } from 'async-primitives';
 import type { Logger, ServerConfig } from '../types.ts';
@@ -14,6 +17,9 @@ import {
   hashPassword,
   verifyPassword,
   generateApiPassword,
+  apiPasswordDigest,
+  encodeApiPasswordDigest,
+  matchesApiPassword,
   generateUserId,
 } from '../utils/crypto.ts';
 import {
@@ -27,7 +33,10 @@ import {
 export interface ApiPassword {
   label: string;
   passwordHash: string;
-  salt: string;
+  /** Original salt for a legacy record awaiting its first successful use. */
+  salt?: string;
+  /** The credential was issued before the storage format changed. */
+  rotationRecommended?: true;
   createdAt: string;
 }
 
@@ -47,6 +56,8 @@ export interface User {
   updatedAt: string;
   /** Revision used to invalidate sessions and pending authentication. */
   authVersion?: number;
+  /** The upgraded password should be replaced by its owner. */
+  passwordChangeRecommended?: true;
   /** Confirmed second factor; omitted until registration is complete. */
   totp?: TotpCredentials;
 }
@@ -86,6 +97,8 @@ export interface ApiPasswordListResponse {
   apiPasswords: Array<{
     label: string;
     createdAt: string;
+    /** A legacy credential is awaiting verification or has been upgraded in place. */
+    migrationStatus?: 'pending' | 'upgraded';
   }>;
 }
 
@@ -143,11 +156,13 @@ export interface UserService {
   readonly getAllUsers: () => Promise<User[]>;
   readonly updateUser: (
     username: string,
-    updates: Partial<Pick<User, 'role'>> | { password: string }
+    updates: Partial<Pick<User, 'role'>> | { password: string },
+    expected?: Pick<User, 'id' | 'authVersion'>
   ) => Promise<User | undefined>;
   readonly deleteUser: (username: string) => Promise<boolean>;
   readonly regenerateApiPassword: (
-    username: string
+    username: string,
+    expected?: Pick<User, 'id' | 'authVersion'>
   ) => Promise<RegenerateApiPasswordResponse | undefined>;
   readonly validateCredentials: (
     username: string,
@@ -165,11 +180,13 @@ export interface UserService {
   ) => Promise<ApiPasswordListResponse | undefined>;
   readonly addApiPassword: (
     username: string,
-    label: string
+    label: string,
+    expected?: Pick<User, 'id' | 'authVersion'>
   ) => Promise<ApiPasswordAddResponse | undefined>;
   readonly deleteApiPassword: (
     username: string,
-    label: string
+    label: string,
+    expected?: Pick<User, 'id' | 'authVersion'>
   ) => Promise<ApiPasswordDeleteResponse>;
   readonly validateAnyApiPassword: (
     username: string,
@@ -196,9 +213,6 @@ export const createUserService = (config: UserServiceConfig): UserService => {
   const loadUsers = async (): Promise<void> => {
     const handle = await fileLock.readLock();
     try {
-      // Check if file exists
-      await access(usersFilePath, constants.R_OK);
-
       // Read and parse file
       const content = await readFile(usersFilePath, 'utf-8');
       const usersArray: User[] = JSON.parse(content);
@@ -344,6 +358,36 @@ export const createUserService = (config: UserServiceConfig): UserService => {
     }
   };
 
+  const matchesRevision = (
+    user: User,
+    expected: Pick<User, 'id' | 'authVersion'> | undefined
+  ): boolean =>
+    !expected ||
+    (user.id === expected.id &&
+      (user.authVersion ?? 0) === (expected.authVersion ?? 0));
+
+  // Older stores kept one unlabelled Basic credential on the account.
+  const getApiPasswords = (user: User): ApiPassword[] => {
+    if (user.apiPasswords?.length) return user.apiPasswords;
+    if (user.apiPasswordHash && user.apiPasswordSalt) {
+      return [
+        {
+          label: 'default',
+          passwordHash: user.apiPasswordHash,
+          salt: user.apiPasswordSalt,
+          createdAt: user.createdAt,
+        },
+      ];
+    }
+    return [];
+  };
+
+  const storeApiPasswords = (user: User, credentials: ApiPassword[]) => {
+    user.apiPasswords = credentials;
+    delete user.apiPasswordHash;
+    delete user.apiPasswordSalt;
+  };
+
   const service: UserService = {
     mutateTotp: async (username, authVersion, mutation, invalidateSessions) => {
       const handle = await fileLock.writeLock();
@@ -394,16 +438,16 @@ export const createUserService = (config: UserServiceConfig): UserService => {
      * @returns Created user
      */
     createUser: async (request: CreateUserRequest): Promise<User> => {
+      validateUsername(request.username);
+      validatePassword(request.password, request.username);
+      validateRole(request.role);
+      // Derive the hash without blocking unrelated reads or writes to the account store.
+      const passwordSalt = generateSalt();
+      const passwordHash = await hashPassword(request.password, passwordSalt);
       const handle = await fileLock.writeLock();
       try {
         const user = await persistUsersMutation(() => {
           validateUsername(request.username);
-          validatePassword(request.password, request.username);
-          validateRole(request.role);
-
-          // Generate salts and hashes
-          const passwordSalt = generateSalt();
-          const passwordHash = hashPassword(request.password, passwordSalt);
 
           const now = new Date().toISOString();
           const createdUser: User = {
@@ -411,7 +455,7 @@ export const createUserService = (config: UserServiceConfig): UserService => {
             username: request.username,
             passwordHash,
             salt: passwordSalt,
-            apiPasswords: [], // Start with empty API passwords array
+            apiPasswords: [],
             role: request.role,
             createdAt: now,
             updatedAt: now,
@@ -426,7 +470,7 @@ export const createUserService = (config: UserServiceConfig): UserService => {
           `Created user: ${request.username} with role: ${request.role}`
         );
 
-        return user;
+        return cloneUser(user);
       } finally {
         handle.release();
       }
@@ -468,12 +512,42 @@ export const createUserService = (config: UserServiceConfig): UserService => {
      */
     updateUser: async (
       username: string,
-      updates: Partial<Pick<User, 'role'>> | { password: string }
+      updates: Partial<Pick<User, 'role'>> | { password: string },
+      expected?: Pick<User, 'id' | 'authVersion'>
     ): Promise<User | undefined> => {
+      const original = await service.getUser(username);
+      if (!original || !matchesRevision(original, expected)) return undefined;
+      let credential: { salt: string; passwordHash: string } | undefined;
+      if ('password' in updates) {
+        validatePassword(updates.password, username);
+        if (
+          (original.passwordChangeRecommended ||
+            isLegacyCredentialHash(original.passwordHash)) &&
+          (await verifyPassword(
+            updates.password,
+            original.passwordHash,
+            original.salt
+          ))
+        ) {
+          throw Object.assign(
+            new Error('Choose a password different from the current password'),
+            { statusCode: 400 }
+          );
+        }
+        const salt = generateSalt();
+        credential = {
+          salt,
+          passwordHash: await hashPassword(updates.password, salt),
+        };
+      }
       const handle = await fileLock.writeLock();
       try {
         const user = users.get(username);
-        if (!user) {
+        if (
+          !user ||
+          user.id !== original.id ||
+          !matchesRevision(user, expected)
+        ) {
           return undefined;
         }
 
@@ -483,15 +557,9 @@ export const createUserService = (config: UserServiceConfig): UserService => {
             user.role = updates.role;
           }
 
-          if ('password' in updates && updates.password) {
-            validatePassword(updates.password, username);
-            const newPasswordSalt = generateSalt();
-            const newPasswordHash = hashPassword(
-              updates.password,
-              newPasswordSalt
-            );
-            user.passwordHash = newPasswordHash;
-            user.salt = newPasswordSalt;
+          if (credential) {
+            Object.assign(user, credential);
+            delete user.passwordChangeRecommended;
           }
 
           user.updatedAt = new Date().toISOString();
@@ -500,7 +568,7 @@ export const createUserService = (config: UserServiceConfig): UserService => {
         });
 
         logger.info(`Updated user: ${username}`);
-        return updatedUser;
+        return cloneUser(updatedUser);
       } finally {
         handle.release();
       }
@@ -535,35 +603,33 @@ export const createUserService = (config: UserServiceConfig): UserService => {
      * @param username - Username to regenerate API password for
      * @returns New API password or undefined if user not found
      */
-    regenerateApiPassword: async (
-      username: string
-    ): Promise<RegenerateApiPasswordResponse | undefined> => {
+    regenerateApiPassword: async (username, expected) => {
       const handle = await fileLock.writeLock();
       try {
         const user = users.get(username);
-        if (!user) {
-          return undefined;
-        }
-
-        const result = await persistUsersMutation(() => {
-          const newApiPassword = generateApiPassword();
-          const newApiPasswordSalt = generateSalt();
-          const newApiPasswordHash = hashPassword(
-            newApiPassword,
-            newApiPasswordSalt
-          );
-
-          user.apiPasswordHash = newApiPasswordHash;
-          user.apiPasswordSalt = newApiPasswordSalt;
-          user.updatedAt = new Date().toISOString();
-
-          return {
-            apiPassword: newApiPassword,
-          };
+        if (!user || !matchesRevision(user, expected)) return undefined;
+        const credentials = getApiPasswords(user).filter(
+          (entry) => entry.label !== 'default'
+        );
+        if (credentials.length >= 10)
+          throw new Error('Maximum of 10 API passwords allowed per user');
+        const apiPassword = generateApiPassword();
+        const now = new Date().toISOString();
+        await persistUsersMutation(() => {
+          storeApiPasswords(user, [
+            ...credentials,
+            {
+              label: 'default',
+              createdAt: now,
+              passwordHash: encodeApiPasswordDigest(
+                apiPasswordDigest(apiPassword)
+              ),
+            },
+          ]);
+          user.updatedAt = now;
         });
         logger.info(`Regenerated API password for user: ${username}`);
-
-        return result;
+        return { apiPassword };
       } finally {
         handle.release();
       }
@@ -584,8 +650,36 @@ export const createUserService = (config: UserServiceConfig): UserService => {
         return undefined;
       }
 
-      const isValid = verifyPassword(password, user.passwordHash, user.salt);
-      return isValid ? user : undefined;
+      if (!(await verifyPassword(password, user.passwordHash, user.salt)))
+        return undefined;
+      if (!isLegacyCredentialHash(user.passwordHash)) {
+        const current = await service.getUser(username);
+        return current && matchesRevision(current, user) ? current : undefined;
+      }
+
+      // Derive outside the writer lock. A reset or deletion always wins over a
+      // conversion started with a previous credential revision.
+      const salt = generateSalt();
+      const passwordHash = await hashPassword(password, salt);
+      const handle = await fileLock.writeLock();
+      try {
+        const current = users.get(username);
+        if (!current || !matchesRevision(current, user)) return undefined;
+        // Another login may already have upgraded this exact password.
+        if (
+          current.passwordHash === user.passwordHash &&
+          current.salt === user.salt
+        ) {
+          await persistUsersMutation(() => {
+            current.passwordHash = passwordHash;
+            current.salt = salt;
+            current.passwordChangeRecommended = true;
+          });
+        }
+        return cloneUser(current);
+      } finally {
+        handle.release();
+      }
     },
 
     /**
@@ -594,40 +688,39 @@ export const createUserService = (config: UserServiceConfig): UserService => {
      * @param apiPassword - API password
      * @returns User data if valid, undefined otherwise
      */
-    validateApiPassword: async (
-      username: string,
-      apiPassword: string
-    ): Promise<User | undefined> => {
-      const user = await service.getUser(username);
-      if (!user) {
-        return undefined;
-      }
-
-      // First check new apiPasswords array
-      if (user.apiPasswords && user.apiPasswords.length > 0) {
-        for (const apiPwd of user.apiPasswords) {
-          const isValid = verifyPassword(
-            apiPassword,
-            apiPwd.passwordHash,
-            apiPwd.salt
-          );
-          if (isValid) {
-            return user;
-          }
-        }
-      } else if (user.apiPasswordHash && user.apiPasswordSalt) {
-        // Fallback to old single API password for backward compatibility
-        const isValid = verifyPassword(
-          apiPassword,
-          user.apiPasswordHash,
-          user.apiPasswordSalt
+    validateApiPassword: async (username, apiPassword) => {
+      if (!apiPassword) return undefined;
+      const digest = apiPasswordDigest(apiPassword);
+      const snapshot = await service.getUser(username);
+      if (!snapshot) return undefined;
+      const match = (entry: ApiPassword) =>
+        matchesApiPassword(entry.passwordHash, digest) ||
+        matchesLegacyCredential(apiPassword, entry.passwordHash, entry.salt);
+      const verified = getApiPasswords(snapshot).find(match);
+      if (!verified) return undefined;
+      if (!isLegacyCredentialHash(verified.passwordHash)) return snapshot;
+      // Recheck the entry under the lock so revocation wins over a delayed migration.
+      const handle = await fileLock.writeLock();
+      try {
+        const current = users.get(username);
+        if (!current || !matchesRevision(current, snapshot)) return undefined;
+        const credentials = getApiPasswords(current);
+        const entry = credentials.find(
+          (item) => item.label === verified.label && match(item)
         );
-        if (isValid) {
-          return user;
+        if (!entry) return undefined;
+        if (isLegacyCredentialHash(entry.passwordHash)) {
+          await persistUsersMutation(() => {
+            entry.passwordHash = encodeApiPasswordDigest(digest);
+            delete entry.salt;
+            entry.rotationRecommended = true;
+            storeApiPasswords(current, credentials);
+          });
         }
+        return cloneUser(current);
+      } finally {
+        handle.release();
       }
-
-      return undefined;
     },
 
     /**
@@ -654,27 +747,13 @@ export const createUserService = (config: UserServiceConfig): UserService => {
     listApiPasswords: async (
       username: string
     ): Promise<ApiPasswordListResponse | undefined> => {
-      const user = users.get(username);
+      const user = await service.getUser(username);
       if (!user) {
         return undefined;
       }
 
-      // Initialize apiPasswords array if it doesn't exist (backward compatibility)
-      if (!user.apiPasswords) {
-        user.apiPasswords = [];
-        // Migrate old single API password if it exists
-        if (user.apiPasswordHash && user.apiPasswordSalt) {
-          user.apiPasswords.push({
-            label: 'default',
-            passwordHash: user.apiPasswordHash,
-            salt: user.apiPasswordSalt,
-            createdAt: user.createdAt,
-          });
-        }
-      }
-
       // Sort by createdAt in descending order (newest first)
-      const sortedPasswords = [...user.apiPasswords].sort(
+      const sortedPasswords = [...getApiPasswords(user)].sort(
         (a, b) =>
           new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
@@ -683,6 +762,11 @@ export const createUserService = (config: UserServiceConfig): UserService => {
         apiPasswords: sortedPasswords.map((p) => ({
           label: p.label,
           createdAt: p.createdAt,
+          ...(isLegacyCredentialHash(p.passwordHash)
+            ? { migrationStatus: 'pending' as const }
+            : p.rotationRecommended
+              ? { migrationStatus: 'upgraded' as const }
+              : {}),
         })),
       };
     },
@@ -695,12 +779,13 @@ export const createUserService = (config: UserServiceConfig): UserService => {
      */
     addApiPassword: async (
       username: string,
-      label: string
+      label: string,
+      expected?: Pick<User, 'id' | 'authVersion'>
     ): Promise<ApiPasswordAddResponse | undefined> => {
       const handle = await fileLock.writeLock();
       try {
         const user = users.get(username);
-        if (!user) {
+        if (!user || !matchesRevision(user, expected)) {
           return undefined;
         }
 
@@ -714,45 +799,36 @@ export const createUserService = (config: UserServiceConfig): UserService => {
         }
 
         const result = await persistUsersMutation(() => {
-          // Initialize apiPasswords array if it doesn't exist
-          if (!user.apiPasswords) {
-            user.apiPasswords = [];
-            // Migrate old single API password if it exists
-            if (user.apiPasswordHash && user.apiPasswordSalt) {
-              user.apiPasswords.push({
-                label: 'default',
-                passwordHash: user.apiPasswordHash,
-                salt: user.apiPasswordSalt,
-                createdAt: user.createdAt,
-              });
-            }
-          }
+          const credentials = getApiPasswords(user);
 
           // Check for duplicate label
-          if (user.apiPasswords.some((p) => p.label === label)) {
+          if (credentials.some((p) => p.label === label)) {
             throw new Error(
               `API password with label "${label}" already exists`
             );
           }
 
           // Check maximum limit (10 API passwords)
-          if (user.apiPasswords.length >= 10) {
+          if (credentials.length >= 10) {
             throw new Error('Maximum of 10 API passwords allowed per user');
           }
 
           // Generate new API password
           const apiPassword = generateApiPassword();
-          const salt = generateSalt();
-          const passwordHash = hashPassword(apiPassword, salt);
+          const passwordHash = encodeApiPasswordDigest(
+            apiPasswordDigest(apiPassword)
+          );
           const now = new Date().toISOString();
 
           // Add new API password
-          user.apiPasswords.push({
-            label,
-            passwordHash,
-            salt,
-            createdAt: now,
-          });
+          storeApiPasswords(user, [
+            ...credentials,
+            {
+              label,
+              passwordHash,
+              createdAt: now,
+            },
+          ]);
 
           user.updatedAt = now;
 
@@ -781,19 +857,20 @@ export const createUserService = (config: UserServiceConfig): UserService => {
      */
     deleteApiPassword: async (
       username: string,
-      label: string
+      label: string,
+      expected?: Pick<User, 'id' | 'authVersion'>
     ): Promise<ApiPasswordDeleteResponse> => {
       const handle = await fileLock.writeLock();
       try {
         const user = users.get(username);
-        if (!user) {
+        if (!user || !matchesRevision(user, expected)) {
           return {
             success: false,
             message: 'User not found',
           };
         }
 
-        const currentApiPasswords = user.apiPasswords ?? [];
+        const currentApiPasswords = getApiPasswords(user);
         if (!currentApiPasswords.some((p) => p.label === label)) {
           return {
             success: false,
@@ -802,13 +879,9 @@ export const createUserService = (config: UserServiceConfig): UserService => {
         }
 
         const result = await persistUsersMutation(() => {
-          // Initialize apiPasswords array if it doesn't exist
-          if (!user.apiPasswords) {
-            user.apiPasswords = [];
-          }
-
-          user.apiPasswords = user.apiPasswords.filter(
-            (p) => p.label !== label
+          storeApiPasswords(
+            user,
+            currentApiPasswords.filter((p) => p.label !== label)
           );
           user.updatedAt = new Date().toISOString();
 

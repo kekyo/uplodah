@@ -50,7 +50,15 @@ export const registerTotpRoutes = async (
     scope.setErrorHandler((error, _request, reply) => {
       const failure = error as { code?: string; statusCode?: number };
       const status = failure.statusCode ?? 500;
-      if (status === 429) reply.header('Retry-After', '600');
+      if (failure.code === 'PASSWORD_BUSY') {
+        return reply
+          .code(503)
+          .header('Retry-After', '1')
+          .send({ success: false, code: failure.code });
+      }
+      if (failure.code === 'TOTP_RATE_LIMITED')
+        reply.header('Retry-After', '600');
+
       return reply.code(status).send({
         success: false,
         code: status < 500 ? failure.code : 'TOTP_STORAGE_ERROR',
