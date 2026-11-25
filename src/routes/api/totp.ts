@@ -4,6 +4,10 @@
 // https://github.com/kekyo/uplodah
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import {
+  loginBodyLimit,
+  loginRateLimit,
+} from '../../services/requestLimits.ts';
 import type { User, UserService } from '../../services/userService.ts';
 import type { SessionService } from '../../services/sessionService.ts';
 import type { TotpService } from '../../services/totpService.ts';
@@ -55,6 +59,8 @@ export const registerTotpRoutes = async (
     scope.post<{ Body: { code: string; recovery?: boolean } }>(
       '/api/auth/login/totp',
       {
+        bodyLimit: loginBodyLimit,
+        config: { rateLimit: loginRateLimit },
         schema: {
           body: {
             type: 'object',
@@ -92,6 +98,8 @@ export const registerTotpRoutes = async (
     }>(
       '/api/ui/totp',
       {
+        bodyLimit: loginBodyLimit,
+        config: { rateLimit: loginRateLimit },
         schema: {
           body: {
             type: 'object',

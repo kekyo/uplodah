@@ -6,6 +6,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { Logger, StorageDirectoryDescriptor } from '../../../types.ts';
 import type { UserService } from '../../../services/userService.ts';
+import { publicReadRateLimit } from '../../../services/requestLimits.ts';
 import type { SessionService } from '../../../services/sessionService.ts';
 import type { AuthService } from '../../../services/authService.ts';
 import type { AuthenticatedFastifyRequest } from '../../../middleware/fastifyAuth.ts';
@@ -302,6 +303,7 @@ export const registerUiRoutes = async (
   // POST /api/ui/config - Application configuration (public endpoint)
   fastify.post(
     '/config',
+    { config: { rateLimit: publicReadRateLimit } },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         let currentUser = null;

@@ -158,6 +158,8 @@ export default defineConfig(({ mode, command }) => {
           'async-primitives',
           'dayjs',
           'fastify',
+          /^node:/,
+          '@fastify/rate-limit',
           '@fastify/passport',
           '@fastify/secure-session',
           '@fastify/static',

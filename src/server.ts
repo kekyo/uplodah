@@ -9,6 +9,12 @@ import Fastify, {
   type FastifyReply,
   type FastifyRequest,
 } from 'fastify';
+import rateLimit from '@fastify/rate-limit';
+import {
+  loginRateLimit,
+  loginBodyLimit,
+  publicReadRateLimit,
+} from './services/requestLimits.ts';
 import fastifyPassport from '@fastify/passport';
 import fastifySecureSession from '@fastify/secure-session';
 import fastifyStatic from '@fastify/static';
@@ -213,6 +219,12 @@ export const createFastifyInstance = async (
       disableRequestLogging: true, // Use our custom request logging
     }),
     rewriteUrl: createRewriteUrl(urlResolver, logger),
+  });
+
+  await fastify.register(rateLimit, {
+    global: false,
+    timeWindow: 60_000,
+    cache: 5000,
   });
 
   // Add content type parser for binary data (package uploads)
@@ -450,6 +462,8 @@ export const createFastifyInstance = async (
   fastify.post(
     '/api/auth/login',
     {
+      bodyLimit: loginBodyLimit,
+      config: { rateLimit: loginRateLimit },
       schema: {
         body: {
           type: 'object',
@@ -629,61 +643,65 @@ export const createFastifyInstance = async (
   };
 
   // Serve config endpoint without authentication (public endpoint per CLAUDE.md spec)
-  fastify.get('/api/config', async (request: FastifyRequest, _reply) => {
-    let currentUser = null;
+  fastify.get(
+    '/api/config',
+    { config: { rateLimit: publicReadRateLimit } },
+    async (request: FastifyRequest, _reply) => {
+      let currentUser = null;
 
-    try {
-      currentUser = await resolveCurrentUserForConfig(request);
-    } catch (error) {
-      logger.error(`Error checking authentication for /api/config: ${error}`);
+      try {
+        currentUser = await resolveCurrentUserForConfig(request);
+      } catch (error) {
+        logger.error(`Error checking authentication for /api/config: ${error}`);
+      }
+
+      // Get available languages from locale directory
+      let availableLanguages: string[] = [];
+      try {
+        const localeDir = resolveEnvironmentPath(
+          ['ui', 'public', 'locale'],
+          ['ui', 'locale']
+        );
+
+        const files = await fs.readdir(localeDir);
+        availableLanguages = files
+          .filter((f) => f.endsWith('.json') && f !== 'fallback.json')
+          .map((f) => f.replace('.json', ''));
+      } catch (error) {
+        logger.error(`Failed to read locale directory: ${error}`);
+        availableLanguages = ['en']; // Fallback to English
+      }
+
+      const authMode = authService.getAuthMode();
+      const availableUploadDirectoryDetails =
+        filterUploadDirectoryDetailsByUserAccess({
+          authMode,
+          currentUser,
+          directories: storageService.getAvailableUploadDirectoryDetails(),
+        });
+
+      return {
+        realm: config.realm || `${packageName} ${version}`,
+        name: packageName,
+        version: version,
+        git_commit_hash: git_commit_hash,
+        serverUrl: serverUrl,
+        maxDownloadSizeMb,
+        authMode: authMode,
+        authEnabled: {
+          general: authService.isAuthRequired('general'),
+          publish: authService.isAuthRequired('publish'),
+          admin: authService.isAuthRequired('admin'),
+        },
+        currentUser: currentUser,
+        availableLanguages: availableLanguages,
+        storageDirectories: availableUploadDirectoryDetails.map(
+          (directory) => directory.directoryPath
+        ),
+        storageDirectoryDetails: availableUploadDirectoryDetails,
+      };
     }
-
-    // Get available languages from locale directory
-    let availableLanguages: string[] = [];
-    try {
-      const localeDir = resolveEnvironmentPath(
-        ['ui', 'public', 'locale'],
-        ['ui', 'locale']
-      );
-
-      const files = await fs.readdir(localeDir);
-      availableLanguages = files
-        .filter((f) => f.endsWith('.json') && f !== 'fallback.json')
-        .map((f) => f.replace('.json', ''));
-    } catch (error) {
-      logger.error(`Failed to read locale directory: ${error}`);
-      availableLanguages = ['en']; // Fallback to English
-    }
-
-    const authMode = authService.getAuthMode();
-    const availableUploadDirectoryDetails =
-      filterUploadDirectoryDetailsByUserAccess({
-        authMode,
-        currentUser,
-        directories: storageService.getAvailableUploadDirectoryDetails(),
-      });
-
-    return {
-      realm: config.realm || `${packageName} ${version}`,
-      name: packageName,
-      version: version,
-      git_commit_hash: git_commit_hash,
-      serverUrl: serverUrl,
-      maxDownloadSizeMb,
-      authMode: authMode,
-      authEnabled: {
-        general: authService.isAuthRequired('general'),
-        publish: authService.isAuthRequired('publish'),
-        admin: authService.isAuthRequired('admin'),
-      },
-      currentUser: currentUser,
-      availableLanguages: availableLanguages,
-      storageDirectories: availableUploadDirectoryDetails.map(
-        (directory) => directory.directoryPath
-      ),
-      storageDirectoryDetails: availableUploadDirectoryDetails,
-    };
-  });
+  );
 
   // Register UI Backend API routes
   try {

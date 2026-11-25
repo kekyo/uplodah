@@ -5,6 +5,10 @@
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { ReaderWriterLock } from 'async-primitives';
+import {
+  publicReadRateLimit,
+  transferRateLimit,
+} from '../../../services/requestLimits.ts';
 import { randomUUID } from 'crypto';
 import { createReadStream } from 'fs';
 import { mkdtemp, rm, stat } from 'fs/promises';
@@ -436,7 +440,8 @@ export const registerFilesRoutes = async (
   fastify.post(
     '/archive-requests',
     {
-      preHandler: authPreHandler,
+      config: { rateLimit: transferRateLimit },
+      preParsing: authPreHandler,
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const body = request.body as Partial<CreateFileArchiveRequestBody>;
@@ -536,6 +541,7 @@ export const registerFilesRoutes = async (
   fastify.get(
     archiveRequestRoute,
     {
+      config: { rateLimit: publicReadRateLimit },
       preHandler: authPreHandler,
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
