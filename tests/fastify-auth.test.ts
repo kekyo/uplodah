@@ -33,7 +33,7 @@ describe('Fastify Authentication - Phase 2 Tests', () => {
   let serverPort: number;
 
   const createTestUsers = async () => {
-    // Create test users file - UserService expects a plain array with proper SHA-1 hashes
+    // These accounts use the on-disk format from releases before credential migration.
     const testUsers = [
       {
         id: 'test-admin-id',
@@ -322,6 +322,7 @@ describe('Fastify Authentication - Phase 2 Tests', () => {
         user: {
           username: 'testadmin',
           role: 'admin',
+          passwordChangeRecommended: true,
         },
       });
     });
@@ -378,6 +379,7 @@ describe('Fastify Authentication - Phase 2 Tests', () => {
         username: 'testpublish',
         role: 'publish',
         authenticated: true,
+        passwordChangeRecommended: true,
       });
       expect(data.storageDirectories).toEqual(['/']);
       expect(data.storageDirectoryDetails).toEqual([

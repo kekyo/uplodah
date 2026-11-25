@@ -192,15 +192,39 @@ describe('TOTP security boundaries', () => {
     expect((await users.getUser('alice'))!.totp).toBeDefined();
   });
 
-  it('fails closed when the key is missing or replaced and keeps private permissions', async () => {
+  it('rejects a pending enrollment for an account recreated with the same name', async () => {
+    const former = (await users.getUser('alice'))!;
+    const staleRevision = former.authVersion ?? 0;
+    // A replacement can reach the same revision as its predecessor.
+    await users.deleteUser('alice');
+    const replacement = await users.createUser({
+      username: 'alice',
+      password,
+      role: 'admin',
+    });
+    for (let revision = 0; revision < staleRevision; revision++) {
+      await users.updateUser('alice', { role: 'admin' });
+    }
+    const pending = await users.mutateTotp(former, () => former.totp, true);
+    expect(pending).toBeUndefined();
+    const current = await users.getUser('alice');
+    expect(current?.id).toBe(replacement.id);
+    expect(current?.totp).toBeUndefined();
+  });
+
+  it('creates the encryption key and enrolled account store with private permissions', async () => {
     const keyFile = join(directory, 'totp.key');
     expect((await stat(keyFile)).mode & 0o777).toBe(0o600);
     expect((await stat(join(directory, 'users.json'))).mode & 0o777).toBe(
       0o600
     );
+  });
+
+  it('refuses to use enrolled accounts with a missing or replaced key', async () => {
+    const keyFile = join(directory, 'totp.key');
     totp.destroy();
     await rm(keyFile);
-    await expect(totp.initialize()).rejects.toThrow();
+    await expect(totp.initialize()).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(
       totp.setup(
         (await users.getUser('alice'))!,
@@ -211,8 +235,8 @@ describe('TOTP security boundaries', () => {
         true
       )
     ).rejects.toThrow();
-    await expect(stat(keyFile)).rejects.toThrow();
-    await writeFile(keyFile, Buffer.alloc(32, 42));
+    // Exclusive creation also proves the failed recovery left the key absent.
+    await writeFile(keyFile, Buffer.alloc(32, 42), { flag: 'wx', mode: 0o600 });
     await expect(totp.initialize()).rejects.toThrow();
   });
 
@@ -223,7 +247,7 @@ describe('TOTP security boundaries', () => {
       password,
       role: 'read',
     });
-    await users.mutateTotp(bob.username, 0, () => alice.totp, true);
+    await users.mutateTotp(bob, () => alice.totp, true);
     await expect(totp.initialize()).rejects.toThrow();
   });
 });

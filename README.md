@@ -615,8 +615,23 @@ Configure password requirements in `config.json`:
 }
 ```
 
-`uplodah` stores both login passwords and API passwords as salted hashes, so plaintext passwords are not saved on disk.
-However, if you do not use HTTPS (TLS), the `Authorization` header contains the plaintext API password, which makes it vulnerable to sniffing.
+### Password storage and migration
+
+uplodah stores login passwords with scrypt and a separate random salt for each password. For generated API passwords, it stores an HMAC-SHA-256 verification tag.
+
+After an upgrade, existing login and API passwords continue to work. The first successful authentication with each credential updates its storage format.
+
+- When the password-change reminder appears after sign-in, choose a different login password.
+- Open API Password in the account menu to see the migration status of each API password. When rotating a credential, verify the new one in your client before deleting the old one.
+- Administrators can open Reset Password to see how many login and API passwords still use the old format.
+
+To recover an account, stop the server and run the following command. Enter the new password twice, then restart the server. A reset invalidates the account’s existing sessions. Its role, enrolled authenticator, and API passwords continue to work.
+
+```bash
+uplodah --config-file ./config.json --password-reset alice
+```
+
+If you do not use HTTPS (TLS), the `Authorization` header contains the plaintext API password, which makes it vulnerable to sniffing.
 If the server is exposed beyond a trusted local network, protect communications with HTTPS.
 
 ---
@@ -935,6 +950,7 @@ All settings are resolved with the priority **CLI > environment variable > confi
 | N/A                             | `UPLODAH_SESSION_SECRET`             | `sessionSecret`         | Secret used for session cookies                          | string                                     | auto-generated                 |
 | N/A                             | `UPLODAH_TOTP_KEY_FILE`              | `totpKeyFile`           | Encryption key file for TOTP setup keys                  | File path                                  | totp.key alongside config.json |
 | `--totp-reset <username>`       | N/A                                  | N/A                     | Reset a user's TOTP while the server is stopped          | Username                                   | N/A                            |
+| `--password-reset <username>`   | N/A                                  | N/A                     | Reset a login password with the server stopped           | Username                                   | N/A                            |
 | N/A                             | `UPLODAH_PASSWORD_MIN_SCORE`         | `passwordMinScore`      | Minimum password strength score                          | 0-4                                        | `2`                            |
 | N/A                             | `UPLODAH_PASSWORD_STRENGTH_CHECK`    | `passwordStrengthCheck` | Enable password strength checking                        | `true`, `false`                            | `true`                         |
 | `--max-upload-size-mb <size>`   | `UPLODAH_MAX_UPLOAD_SIZE_MB`         | `maxUploadSizeMb`       | Maximum upload size in MB                                | 1-10000                                    | `100`                          |

@@ -3,14 +3,7 @@
 // Under MIT.
 // https://github.com/kekyo/uplodah
 
-import {
-  describe,
-  test,
-  expect,
-  beforeAll,
-  afterAll,
-  beforeEach,
-} from 'vitest';
+import { describe, test, expect, beforeEach } from 'vitest';
 import path from 'path';
 import fs from 'fs/promises';
 import { createReaderWriterLock } from 'async-primitives';

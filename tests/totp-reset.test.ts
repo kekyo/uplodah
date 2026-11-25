@@ -47,8 +47,8 @@ describe('Offline TOTP reset', () => {
       recoveryCodeHashes: ['used-for-test'],
       enabledAt: new Date().toISOString(),
     };
-    await users.mutateTotp(alice.username, 0, () => credentials, true);
-    await users.mutateTotp(bob.username, 0, () => credentials, true);
+    await users.mutateTotp(alice, () => credentials, true);
+    await users.mutateTotp(bob, () => credentials, true);
     users.destroy();
     const before = JSON.parse(await readFile(config.usersFile, 'utf8'));
     const result = await promisify(execFile)(process.execPath, [

@@ -3,7 +3,8 @@
 // Under MIT.
 // https://github.com/kekyo/uplodah
 
-import { beforeEach, describe, expect, test } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
+import * as storagePaths from '../src/utils/storagePaths.ts';
 import fs from 'fs/promises';
 import path from 'path';
 import AdmZip from 'adm-zip';
@@ -313,6 +314,23 @@ describe('Fastify files and upload API', () => {
       const archiveStatusData = await waitForArchiveCompletion(
         archiveRequestData.statusPath
       );
+
+      // A temporary read error must leave the completed archive available for retry.
+      const open = vi
+        .spyOn(storagePaths, 'openStorageFile')
+        .mockRejectedValueOnce(
+          Object.assign(new Error('temporarily unavailable'), {
+            code: 'EACCES',
+          })
+        );
+      try {
+        const unavailable = await fetch(
+          `http://localhost:${serverPort}${archiveStatusData.downloadPath}`
+        );
+        expect(unavailable.status).toBe(403);
+      } finally {
+        open.mockRestore();
+      }
 
       const archiveResponse = await fetch(
         `http://localhost:${serverPort}${archiveStatusData.downloadPath}`

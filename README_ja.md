@@ -612,8 +612,23 @@ curl -L "http://localhost:5968/api/files/report.txt" \
 }
 ```
 
-`uplodah` はログイン用パスワードと API パスワードの両方を SALT 付きハッシュとして保持するため、平文パスワードはディスク上に保存されません。
-ただし、HTTPS (TLS) を使用しない場合は `Authorization` ヘッダに平文の API パスワードが含まれるため、盗聴される危険があります。
+### パスワードの保存と旧形式からの移行
+
+uplodah はログインパスワードを個別のソルト付き scrypt で保存します。自動発行する API パスワードには HMAC-SHA-256 を使い、認証時の照合に必要な値だけを保存します。
+
+旧版から更新しても、ログインパスワードと API パスワードは引き続き使えます。それぞれ初めて認証に成功したときに、そのパスワードの保存形式を更新します。
+
+- ログイン後にパスワード変更の案内が出たら、これまでと異なるパスワードを設定してください。
+- アカウントメニューの「APIパスワード」で、それぞれの移行状況を確認できます。交換する場合は、新しい API パスワードで接続できることを確認してから古いものを削除してください。
+- 管理者は「パスワードリセット」で、旧形式のまま残っているログインパスワードと API パスワードの件数を確認できます。
+
+ログインできない利用者のパスワードは、サーバーを停止してから次のコマンドで再設定できます。新しいパスワードを2回入力してから、サーバーを再起動してください。再設定すると、その利用者の既存のセッションは無効になります。ロール、登録済みの認証アプリ、API パスワードは引き続き使えます。
+
+```bash
+uplodah --config-file ./config.json --password-reset alice
+```
+
+HTTPS (TLS) を使用しない場合は `Authorization` ヘッダに平文の API パスワードが含まれるため、盗聴される危険があります。
 信頼できるローカルネットワークの外へ公開する場合は、通信を HTTPS で保護してください。
 
 ---
@@ -932,6 +947,7 @@ QEMUなしでは、ネイティブアーキテクチャ用にのみビルドで�
 | N/A                             | `UPLODAH_SESSION_SECRET`             | `sessionSecret`         | セッション Cookie 用シークレット             | 文字列                                     | 自動生成                                |
 | N/A                             | `UPLODAH_TOTP_KEY_FILE`              | `totpKeyFile`           | TOTP登録キーを暗号化する鍵の保存先           | ファイルパス                               | config.jsonと同じディレクトリのtotp.key |
 | `--totp-reset <username>`       | N/A                                  | N/A                     | サーバー停止中に指定ユーザーのTOTPをリセット | ユーザー名                                 | N/A                                     |
+| `--password-reset <username>`   | N/A                                  | N/A                     | サーバー停止中にログインパスワードを再設定   | ユーザー名                                 | N/A                                     |
 | N/A                             | `UPLODAH_PASSWORD_MIN_SCORE`         | `passwordMinScore`      | パスワードの最小強度スコア                   | 0-4                                        | `2`                                     |
 | N/A                             | `UPLODAH_PASSWORD_STRENGTH_CHECK`    | `passwordStrengthCheck` | パスワード強度チェックを有効にする           | `true`, `false`                            | `true`                                  |
 | `--max-upload-size-mb <size>`   | `UPLODAH_MAX_UPLOAD_SIZE_MB`         | `maxUploadSizeMb`       | 最大アップロードサイズ (MB)                  | 1-10000                                    | `100`                                   |

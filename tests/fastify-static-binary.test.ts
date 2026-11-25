@@ -3,7 +3,7 @@
 // Under MIT.
 // https://github.com/kekyo/uplodah
 
-import { describe, test, expect, beforeEach, afterEach } from 'vitest';
+import { describe, test, expect, beforeEach } from 'vitest';
 import path from 'path';
 import { promises as fs } from 'fs';
 import { startFastifyServer, createFastifyInstance } from '../src/server';

@@ -6,7 +6,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { join } from 'path';
 import { writeFile, mkdir } from 'fs/promises';
-import { existsSync } from 'fs';
+import { readFile } from 'node:fs/promises';
+import * as prompts from '../src/utils/prompt.ts';
+import { PassThrough } from 'node:stream';
 import { runAuthInit } from '../src/authInit';
 import { createConsoleLogger } from '../src/logger';
 import { createTestDirectory, testGlobalLogLevel } from './helpers/test-helper';
@@ -58,25 +60,50 @@ describe('Auth Init', () => {
     });
 
     it('should create config directory if it does not exist', async () => {
-      // Mock readline and process.exit for this test
-      const mockReadline = {
-        createInterface: vi.fn(() => ({
-          question: vi.fn((prompt, callback) => {
-            if (prompt.includes('username')) {
-              callback('testadmin');
-            }
-          }),
-          close: vi.fn(),
-        })),
-      };
-
-      // This is a unit test to verify directory creation logic
-      // Full integration test would require mocking stdin
-      expect(existsSync(configDir)).toBe(false);
-
-      // The actual directory creation happens in runAuthInit
-      // We verify it works by checking the implementation
+      const username = vi
+        .spyOn(prompts, 'promptInput')
+        .mockResolvedValue('testadmin');
+      const password = vi
+        .spyOn(prompts, 'promptPassword')
+        .mockResolvedValue('test-password');
+      try {
+        await runAuthInit(
+          { port: 0, configDir, passwordStrengthCheck: false },
+          logger
+        );
+        const users = JSON.parse(
+          await readFile(join(configDir, 'users.json'), 'utf8')
+        );
+        expect(users).toMatchObject([{ username: 'testadmin', role: 'admin' }]);
+      } finally {
+        username.mockRestore();
+        password.mockRestore();
+      }
     });
+  });
+
+  it('preserves a pasted Unicode password across terminal reads and backspace', async () => {
+    const terminal = Object.assign(new PassThrough(), {
+      isTTY: true,
+      setRawMode: vi.fn(),
+    });
+    const stdin = vi
+      .spyOn(process, 'stdin', 'get')
+      .mockReturnValue(terminal as unknown as typeof process.stdin);
+    const output = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation(() => true);
+    try {
+      const answer = prompts.promptPassword('Password');
+      const input = Buffer.from('鍵🌱😀\x7fabc\r', 'utf8');
+      terminal.write(input.subarray(0, 2));
+      terminal.write(input.subarray(2));
+      expect(await answer).toBe('鍵🌱abc');
+    } finally {
+      output.mockRestore();
+      stdin.mockRestore();
+      terminal.destroy();
+    }
   });
 
   describe('User creation flow', () => {
