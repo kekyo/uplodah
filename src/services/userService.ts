@@ -134,15 +134,13 @@ interface UserServiceConfig {
 export interface UserService {
   /**
    * Updates second-factor state under the account writer lock.
-   * @param username Account to update.
-   * @param authVersion Expected credential revision.
+   * @param expected Account identity and revision verified before the update.
    * @param mutation Pure synchronous update; throwing leaves storage unchanged.
    * @param invalidateSessions Whether to advance the credential revision.
    * @returns Updated account, or undefined if the account/revision changed.
    */
   readonly mutateTotp: (
-    username: string,
-    authVersion: number,
+    expected: Pick<User, 'username' | 'id' | 'authVersion'>,
     mutation: (
       credentials: TotpCredentials | undefined
     ) => TotpCredentials | undefined,
@@ -419,14 +417,15 @@ export const createUserService = (config: UserServiceConfig): UserService => {
   };
 
   const service: UserService = {
-    mutateTotp: async (username, authVersion, mutation, invalidateSessions) => {
+    mutateTotp: async (expected, mutation, invalidateSessions) => {
       const handle = await fileLock.writeLock();
       try {
-        const user = users.get(username);
-        if (!user || (user.authVersion ?? 0) !== authVersion) return undefined;
+        const user = users.get(expected.username);
+        if (!user || !matchesRevision(user, expected)) return undefined;
         await persistUsersMutation(() => {
           user.totp = mutation(cloneUser(user).totp);
-          if (invalidateSessions) user.authVersion = authVersion + 1;
+          if (invalidateSessions)
+            user.authVersion = (user.authVersion ?? 0) + 1;
           user.updatedAt = new Date().toISOString();
         });
         return cloneUser(user);

@@ -192,6 +192,26 @@ describe('TOTP security boundaries', () => {
     expect((await users.getUser('alice'))!.totp).toBeDefined();
   });
 
+  it('rejects a pending enrollment for an account recreated with the same name', async () => {
+    const former = (await users.getUser('alice'))!;
+    const staleRevision = former.authVersion ?? 0;
+    // A replacement can reach the same revision as its predecessor.
+    await users.deleteUser('alice');
+    const replacement = await users.createUser({
+      username: 'alice',
+      password,
+      role: 'admin',
+    });
+    for (let revision = 0; revision < staleRevision; revision++) {
+      await users.updateUser('alice', { role: 'admin' });
+    }
+    const pending = await users.mutateTotp(former, () => former.totp, true);
+    expect(pending).toBeUndefined();
+    const current = await users.getUser('alice');
+    expect(current?.id).toBe(replacement.id);
+    expect(current?.totp).toBeUndefined();
+  });
+
   it('creates the encryption key and enrolled account store with private permissions', async () => {
     const keyFile = join(directory, 'totp.key');
     expect((await stat(keyFile)).mode & 0o777).toBe(0o600);
@@ -227,7 +247,7 @@ describe('TOTP security boundaries', () => {
       password,
       role: 'read',
     });
-    await users.mutateTotp(bob.username, 0, () => alice.totp, true);
+    await users.mutateTotp(bob, () => alice.totp, true);
     await expect(totp.initialize()).rejects.toThrow();
   });
 });

@@ -328,8 +328,7 @@ export const createTotpService = (config: TotpServiceConfig) => {
           if (!user.totp) return fail('TOTP_EXPIRED', 400);
           const secret = await decrypt(user.totp.encryptedSecret, user.id);
           const updated = await config.users.mutateTotp(
-            user.username,
-            state.authVersion,
+            user,
             (credentials) => {
               if (!credentials) return fail('TOTP_EXPIRED', 400);
               return consumeFactor(
@@ -374,8 +373,7 @@ export const createTotpService = (config: TotpServiceConfig) => {
               verified.id
             );
             const consumed = await config.users.mutateTotp(
-              verified.username,
-              verified.authVersion ?? 0,
+              verified,
               (credentials) => {
                 if (!credentials) return fail('TOTP_EXPIRED', 400);
                 return consumeFactor(
@@ -418,7 +416,7 @@ export const createTotpService = (config: TotpServiceConfig) => {
         if (!state || state.attempts >= 5) return fail('TOTP_EXPIRED', 400);
         return await attempt(state.userId, ip, async () => {
           state.attempts++;
-          await currentUser(state);
+          const account = await currentUser(state);
           const lastUsedStep = matchingStep(state.secret, code, -1);
           const encryptedSecret = await encrypt(state.secret, state.userId);
           const recoveryCodes = newRecoveryCodes();
@@ -431,8 +429,7 @@ export const createTotpService = (config: TotpServiceConfig) => {
             ),
           };
           const user = await config.users.mutateTotp(
-            state.username,
-            state.authVersion,
+            account,
             () => credentials,
             true
           );
@@ -466,8 +463,7 @@ export const createTotpService = (config: TotpServiceConfig) => {
           const secret = await decrypt(verified.totp.encryptedSecret, user.id);
           const recoveryCodes = action === 'recovery' ? newRecoveryCodes() : [];
           const updated = await config.users.mutateTotp(
-            user.username,
-            verified.authVersion ?? 0,
+            verified,
             (credentials) => {
               if (!credentials) return fail('TOTP_EXPIRED', 400);
               const consumed = consumeFactor(
